@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="rw">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Menap - Food Budget Planner</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="langjs.js"></script>
+</head>
+
+<body class="light-theme">
+    <div id="app">
+        <!-- Onboarding Screen (Welcome & Setup) -->
+        <div id="onboarding-screen" class="onboarding-overlay hidden">
+            <div class="onboarding-card" style="max-height: 90vh; overflow-y: auto;">
+                <div class="onboarding-logo">
+                    <i class="fas fa-wallet"></i>
+                </div>
+                <h2 translate="setup.title">Welcome to Menap</h2>
+                
+                <div class="tabs onboarding-tabs" style="margin-bottom: 20px;">
+                    <div class="tab active" id="tab-onboard-create" style="padding: 10px; font-size: 13px;">Créer Profil</div>
+                    <div class="tab" id="tab-onboard-qr" style="padding: 10px; font-size: 13px;">Authentification QR</div>
+                </div>
+
+                <!-- Create Profile Content -->
+                <div id="onboard-create-section">
+                    <div class="setup-group">
+                        <label translate="setup.select_lang">Select Language</label>
+                        <select id="setup-lang-select">
+                            <option value="fr" selected>Français</option>
+                            <option value="rw">Kinyarwanda</option>
+                            <option value="rn">Kirundi</option>
+                            <option value="en">English</option>
+                        </select>
+                    </div>
+
+                    <div class="setup-group">
+                        <label translate="setup.select_currency">Select Default Currency</label>
+                        <select id="setup-currency-select">
+                            <option value="BIF" selected>BIF (FBu)</option>
+                            <option value="RWF">RWF (FRw)</option>
+                            <option value="EUR">EUR (€)</option>
+                            <option value="USD">USD ($)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group-row">
+                        <div class="form-group" style="flex: 1;">
+                            <label style="text-align: left; font-size: 11px;">Prénom</label>
+                            <input type="text" id="profile-first-name" placeholder="Ex: Jean">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label style="text-align: left; font-size: 11px;">Nom</label>
+                            <input type="text" id="profile-last-name" placeholder="Ex: Ndiaye">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="text-align: left; font-size: 11px;">Email</label>
+                        <input type="email" id="profile-email" placeholder="jean.ndiaye@example.com">
+                    </div>
+
+                    <div class="form-group" style="text-align: left;">
+                        <label style="font-size: 11px;">Photo de profil</label>
+                        <div style="display: flex; align-items: center; gap: 15px; margin-top: 5px;">
+                            <div id="profile-pic-preview" style="width: 50px; height: 50px; border-radius: 50%; background-color: var(--border-color); display: flex; align-items: center; justify-content: center; overflow: hidden; border: 2px solid var(--primary-color); flex-shrink: 0;">
+                                <i class="fas fa-user" style="font-size: 20px; color: var(--text-muted);"></i>
+                            </div>
+                            <input type="file" id="profile-pic-input" accept="image/*" style="display: none;">
+                            <button type="button" class="backup-btn" style="width: auto; padding: 6px 12px; font-size: 12px; margin: 0;" onclick="document.getElementById('profile-pic-input').click()"><i class="fas fa-camera"></i> Charger Photo</button>
+                        </div>
+                    </div>
+
+                    <button id="setup-start-btn" class="primary-btn" translate="setup.start_btn" style="margin-top: 10px;">Get Started</button>
+                </div>
+
+                <!-- QR Code & DEM Login Content -->
+                <div id="onboard-qr-section" class="hidden">
+                    <p style="font-size: 13px; margin-bottom: 20px; color: var(--text-muted);">
+                        Importez votre Code QR d'authentification ou votre fichier de sauvegarde (.dem) pour vous connecter et restaurer votre profil.
+                    </p>
+                    <div class="file-upload-wrapper" style="margin-bottom: 20px;">
+                        <input type="file" id="onboard-qr-input" accept="image/*,.dem,.sem" style="display: none;">
+                        <button type="button" class="backup-btn-alt" onclick="document.getElementById('onboard-qr-input').click()"><i class="fas fa-upload"></i> Charger QR ou Fichier .dem</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Modal -->
+        <div id="search-modal" class="modal">
+            <div class="modal-header">
+                <div class="search-input-container">
+                    <button id="close-search"><i class="fas fa-arrow-left"></i></button>
+                    <input type="text" id="search-input" translate-placeholder="search.placeholder">
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="search-results"></div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal">
+            <div class="modal-header">
+                <div class="modal-title-bar">
+                    <button id="close-settings"><i class="fas fa-arrow-left"></i></button>
+                    <span translate="settings.title">Settings</span>
+                </div>
+            </div>
+            <div class="modal-body settings-body">
+                <div class="setting-item">
+                    <label translate="settings.theme_label">Application Theme</label>
+                    <select id="theme-select">
+                        <option value="light" translate="settings.theme_light">Light Theme</option>
+                        <option value="dark" translate="settings.theme_dark">Dark Theme</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label translate="settings.lang_label">Application Language</label>
+                    <select id="lang-select">
+                        <option value="rw">Kinyarwanda</option>
+                        <option value="rn">Kirundi</option>
+                        <option value="fr">Français</option>
+                        <option value="en">English</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label translate="settings.currency_label">Default Currency</label>
+                    <select id="currency-select">
+                        <option value="BIF">BIF (FBu)</option>
+                        <option value="RWF">RWF (FRw)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="USD">USD ($)</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="sound-toggle" checked style="width: 18px; height: 18px; accent-color: var(--primary-color);">
+                        <span>Activer les effets sonores</span>
+                    </label>
+                </div>
+                <div class="setting-item" style="border-top: 1px solid var(--border-color); padding-top: 15px;">
+                    <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 12px; color: var(--primary-color);"><i class="fas fa-user-circle"></i> Profil Utilisateur</h3>
+                    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                        <img id="settings-profile-pic" src="" style="width: 60px; height: 60px; border-radius: 50%; border: 2px solid var(--primary-color); display: none; object-fit: cover;">
+                        <div id="settings-profile-pic-fallback" style="width: 60px; height: 60px; border-radius: 50%; background-color: var(--border-color); display: flex; align-items: center; justify-content: center; border: 2px solid var(--primary-color); flex-shrink: 0;">
+                            <i class="fas fa-user" style="font-size: 24px; color: var(--text-muted);"></i>
+                        </div>
+                        <div>
+                            <div id="settings-profile-name" style="font-weight: 700; font-size: 16px;">Nom Utilisateur</div>
+                            <div id="settings-profile-email" style="font-size: 13px; color: var(--text-muted); word-break: break-all;">email@example.com</div>
+                        </div>
+                    </div>
+                    <button id="generate-qr-btn" class="backup-btn" style="margin-bottom: 12px;"><i class="fas fa-qrcode"></i> Exporter QR d'Authentification</button>
+                    
+                    <div id="settings-qr-container" style="display: none; flex-direction: column; align-items: center; gap: 10px; padding: 15px; background-color: var(--bg-color); border-radius: 12px; border: 1px solid var(--border-color); margin-top: 10px;">
+                        <div id="qrcode" style="padding: 10px; background: white; border-radius: 8px;"></div>
+                        <button id="download-qr-btn" class="backup-btn-alt" style="padding: 6px 12px; font-size: 12px; width: auto;"><i class="fas fa-download"></i> Télécharger QR Code</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Backup & Restore Modal Screen -->
+        <div id="backup-modal" class="modal">
+            <div class="modal-header">
+                <div class="modal-title-bar">
+                    <button id="close-backup-modal"><i class="fas fa-arrow-left"></i></button>
+                    <span translate="settings.export_label">Export/Restore Data</span>
+                </div>
+            </div>
+            <div class="modal-body settings-body">
+                <div class="setting-item backup-section">
+                    <h3 translate="settings.export_label">Export Data</h3>
+                    <p translate="settings.export_desc">Save all your budgets, items, purchases, and settings into an encrypted backup file (.dem).</p>
+                    <button id="export-btn" class="backup-btn" translate="settings.export_btn"><i class="fas fa-download"></i> Export to .dem</button>
+                </div>
+                <div class="setting-item backup-section">
+                    <h3 translate="settings.import_label">Restore Data</h3>
+                    <p translate="settings.import_desc">Restore your data and settings from a previously saved backup file (.dem or .sem).</p>
+                    <div class="file-upload-wrapper">
+                        <input type="file" id="import-file-input" accept=".dem,.sem,image/*" style="display: none;">
+                        <button id="import-btn-trigger" class="backup-btn-alt" translate="settings.import_btn"><i class="fas fa-upload"></i> Import from .dem</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contact/Info Modal -->
+        <div id="contact-modal" class="modal">
+            <div class="modal-header">
+                <div class="modal-title-bar">
+                    <button id="close-contact"><i class="fas fa-arrow-left"></i></button>
+                    <span translate="contact.title">About Menap</span>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="info-card">
+                    <h3>Menap Budget Planner</h3>
+                    <p><span translate="contact.version">Version</span> 1.0.0</p>
+                    <hr>
+                    <h4 translate="contact.author">Developer</h4>
+                    <p>Développé par <a href="https://github.com/emmadiblo257" target="_blank">Emmadiblo</a></p>
+                    <p>Email: emmadiblouwizeyimana@gmail.com</p>
+                    <p>Phone: +25765517561</p>
+                    <hr>
+                    <p translate="contact.desc">Menap is designed to help households track food budgets, monitor resource availability, and plan consumption efficiently.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create/Edit Budget Modal -->
+        <div id="budget-modal" class="modal">
+            <div class="modal-header">
+                <div class="modal-title-bar">
+                    <button id="close-budget-modal"><i class="fas fa-arrow-left"></i></button>
+                    <span id="budget-modal-title" translate="budget.create_title">Create a New Budget</span>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label translate="budget.name">Budget Name</label>
+                    <input type="text" id="budget-name" translate-placeholder="budget.name_placeholder">
+                </div>
+                <div class="form-group">
+                    <label translate="budget.start_date">Start Date</label>
+                    <input type="date" id="budget-start-date">
+                </div>
+                <div class="form-group-row">
+                    <div class="form-group" style="flex: 1;">
+                        <label translate="budget.duration">Duration Type</label>
+                        <select id="budget-duration-type">
+                            <option value="day" translate="budget.duration_day">Day(s)</option>
+                            <option value="week" translate="budget.duration_week">Week(s)</option>
+                            <option value="month" selected translate="budget.duration_month">Month(s)</option>
+                            <option value="year" translate="budget.duration_year">Year(s)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="width: 100px;">
+                        <label translate="budget.duration_value">Count</label>
+                        <input type="number" id="budget-duration-val" min="1" value="1">
+                    </div>
+                </div>
+                <button id="save-budget-btn" class="save-btn" translate="budget.save">Create Budget</button>
+            </div>
+        </div>
+
+        <!-- Add Food Item Modal -->
+        <div id="item-modal" class="modal">
+            <div class="modal-header">
+                <div class="modal-title-bar">
+                    <button id="close-item-modal"><i class="fas fa-arrow-left"></i></button>
+                    <span translate="item.create_title">Add Food Item</span>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label translate="item.name">Food Name</label>
+                    <input type="text" id="item-name" translate-placeholder="item.name_placeholder">
+                    <div id="item-suggestions" class="suggestions-container"></div>
+                </div>
+                <div id="item-advisor-tip" class="warning-banner hidden" style="margin-top: 10px; margin-bottom: 15px; background-color: var(--primary-light); border-left-color: var(--primary-color); color: var(--primary-dark);">
+                    <!-- Dynamic budgeting advice will be injected here -->
+                </div>
+                <div class="form-group">
+                    <label translate="item.budgeted">Budgeted Amount</label>
+                    <input type="number" id="item-budgeted" min="0">
+                </div>
+                <button id="save-item-btn" class="save-btn" translate="item.save">Add Item</button>
+            </div>
+        </div>
+
+        <!-- Record Purchase Modal -->
+        <div id="purchase-modal" class="modal">
+            <div class="modal-header">
+                <div class="modal-title-bar">
+                    <button id="close-purchase-modal"><i class="fas fa-arrow-left"></i></button>
+                    <span translate="purchase.create_title">Record Purchase</span>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label translate="purchase.date">Purchase Date</label>
+                    <input type="date" id="purchase-date">
+                </div>
+                <div class="form-group">
+                    <label translate="purchase.amount">Amount Paid</label>
+                    <input type="number" id="purchase-amount" min="0">
+                </div>
+                <div class="form-group">
+                    <label translate="purchase.qty">Quantity (optional)</label>
+                    <input type="text" id="purchase-qty" translate-placeholder="purchase.qty_placeholder">
+                </div>
+                <div class="form-group">
+                    <label translate="purchase.note">Note (optional)</label>
+                    <input type="text" id="purchase-note" translate-placeholder="purchase.note_placeholder">
+                </div>
+                <button id="save-purchase-btn" class="save-btn" translate="purchase.save">Record Purchase</button>
+            </div>
+        </div>
+
+        <!-- Purchases List Modal -->
+        <div id="purchases-list-modal" class="modal">
+            <div class="modal-header">
+                <div class="modal-title-bar">
+                    <button id="close-purchases-list-modal"><i class="fas fa-arrow-left"></i></button>
+                    <span translate="item.purchases_title">Purchases List</span>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="purchases-modal-list"></div>
+            </div>
+        </div>
+
+        <!-- Refill Modal -->
+        <div id="refill-modal" class="modal">
+            <div class="modal-header">
+                <div class="modal-title-bar">
+                    <button id="close-refill-modal"><i class="fas fa-arrow-left"></i></button>
+                    <span translate="item.refill_title">Refill Stock</span>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label translate="purchase.amount">Amount Paid (to add)</label>
+                    <input type="number" id="refill-amount" min="0">
+                </div>
+                <div class="form-group">
+                    <label translate="purchase.qty">Quantity (optional)</label>
+                    <input type="text" id="refill-qty" translate-placeholder="purchase.qty_placeholder">
+                </div>
+                <div class="form-group">
+                    <label translate="purchase.note">Note (optional)</label>
+                    <input type="text" id="refill-note" translate-placeholder="purchase.note_placeholder">
+                </div>
+                <button id="save-refill-btn" class="save-btn" translate="item.refill_btn">Refill</button>
+            </div>
+        </div>
+
+        <!-- Smart Draggable Floating Calculator -->
+        <div id="calculator-modal" style="display: none;">
+            <div class="modal-header" id="calculator-drag-header" style="padding: 0;">
+                <div class="modal-title-bar" style="cursor: move;">
+                    <span style="display: inline-flex; align-items: center; gap: 6px;"><i class="fas fa-calculator"></i> <span translate="nav.calculator">Calculator</span></span>
+                    <button id="close-calculator-modal" style="background: none; border: none; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0;"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+            <div class="modal-body" style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                <input type="text" id="calc-display" class="calc-display" readonly value="0" style="margin-bottom: 2px; height: 44px; font-size: 20px; padding: 6px 12px;">
+                <div id="calc-preview" style="font-size: 13px; text-align: right; color: var(--text-muted); min-height: 18px; font-weight: 500; padding: 0 4px; margin-bottom: 2px;"></div>
+                <div class="calculator-grid" style="gap: 6px; margin-top: 0;">
+                    <button class="calc-btn cmd" style="height: 38px; font-size: 16px;" onclick="pressCalc('C')">C</button>
+                    <button class="calc-btn cmd" style="height: 38px; font-size: 16px;" onclick="pressCalc('Backspace')"><i class="fas fa-backspace"></i></button>
+                    <button class="calc-btn op" style="height: 38px; font-size: 16px;" onclick="pressCalc('(')">(</button>
+                    <button class="calc-btn op" style="height: 38px; font-size: 16px;" onclick="pressCalc(')')">)</button>
+                    
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('7')">7</button>
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('8')">8</button>
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('9')">9</button>
+                    <button class="calc-btn op" style="height: 38px; font-size: 16px;" onclick="pressCalc('/')">/</button>
+                    
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('4')">4</button>
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('5')">5</button>
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('6')">6</button>
+                    <button class="calc-btn op" style="height: 38px; font-size: 16px;" onclick="pressCalc('*')">*</button>
+                    
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('1')">1</button>
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('2')">2</button>
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('3')">3</button>
+                    <button class="calc-btn op" style="height: 38px; font-size: 16px;" onclick="pressCalc('-')">-</button>
+                    
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('0')">0</button>
+                    <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('.')">.</button>
+                    <button class="calc-btn op" style="height: 38px; font-size: 16px;" onclick="pressCalc('+')">+</button>
+                    <button class="calc-btn equal" style="height: 38px; font-size: 16px;" onclick="pressCalc('=')">=</button>
+                </div>
+                <button id="calc-insert-btn" class="calc-insert-btn" style="margin-top: 4px; padding: 10px; font-size: 14px;" onclick="insertCalcValue()">Use Amount</button>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading" class="loading-overlay">
+            <div class="spinner"></div>
+            <span translate="loading.text">Loading Menap...</span>
+        </div>
+
+        <!-- Sidebar Navigation Drawer -->
+        <div id="drawer" class="drawer">
+            <div class="drawer-header" style="flex-direction: column; gap: 10px; padding: 20px 15px; height: auto; min-height: 180px;">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                    <div id="drawer-avatar-container" style="position: relative;">
+                        <img id="drawer-avatar" src="" style="width: 64px; height: 64px; border-radius: 50%; border: 2.5px solid white; object-fit: cover; display: none; box-shadow: var(--shadow-md);">
+                        <div id="drawer-avatar-fallback" style="width: 64px; height: 64px; border-radius: 50%; background-color: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; border: 2.5px solid white; box-shadow: var(--shadow-md); flex-shrink: 0;">
+                            <i class="fas fa-user" style="font-size: 28px; color: white;"></i>
+                        </div>
+                    </div>
+                    <div style="text-align: center;">
+                        <h2 id="drawer-profile-name" style="font-size: 18px; font-weight: 700; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">Menap</h2>
+                        <div id="drawer-profile-email" style="font-size: 11px; opacity: 0.85; word-break: break-all;">Budget Planner</div>
+                    </div>
+                </div>
+            </div>
+            <div class="drawer-content">
+                <div class="drawer-item" id="nav-dashboard"><i class="fas fa-chart-pie"></i> <span translate="nav.dashboard">Dashboard</span></div>
+                <div class="drawer-item" id="nav-budgets"><i class="fas fa-folder-open"></i> <span translate="dashboard.active_budgets">Budgets</span></div>
+                <div class="drawer-item" id="nav-search"><i class="fas fa-search"></i> <span translate="nav.search">Search</span></div>
+                <div class="drawer-item" id="nav-backup"><i class="fas fa-database"></i> <span translate="settings.export_label">Backup/Restore</span></div>
+                <div class="drawer-item" id="nav-share"><i class="fas fa-share-alt"></i> <span translate="nav.share">Share App</span></div>
+                <div class="drawer-item" id="nav-settings"><i class="fas fa-cog"></i> <span translate="nav.settings">Settings</span></div>
+                <div class="drawer-item" id="nav-info"><i class="fas fa-info-circle"></i> <span translate="nav.info">About Menap</span></div>
+                <div class="drawer-item" id="nav-logout" style="color: var(--danger-color); border-top: 1px solid var(--border-color);"><i class="fas fa-sign-out-alt" style="color: var(--danger-color);"></i> <span translate="nav.logout">Déconnexion</span></div>
+            </div>
+        </div>
+        <div id="overlay" class="overlay"></div>
+
+        <!-- Main Application Header -->
+        <header>
+            <div class="header-left">
+                <button id="menu-btn"><i class="fas fa-bars"></i></button>
+                <div class="selector-container" id="header-year-selector">
+                    <span id="current-year">2026</span> <i class="fas fa-caret-down"></i>
+                </div>
+                <div class="selector-container" id="header-month-selector">
+                    <span id="current-month">06</span> <i class="fas fa-caret-down"></i>
+                </div>
+                <div class="selector-container" id="header-day-selector">
+                    <span id="current-day">07</span> <i class="fas fa-caret-down"></i>
+                </div>
+            </div>
+            <div class="header-right">
+                <button id="header-calc-btn"><i class="fas fa-calculator"></i></button>
+                <button id="search-btn"><i class="fas fa-search"></i></button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main id="main-content">
+            <!-- Content will be dynamically injected here (Dashboard view, Budget detail view) -->
+        </main>
+
+        <!-- Logout Confirmation Modal -->
+        <div id="logout-modal" class="modal">
+            <div class="modal-header">
+                <div class="modal-title-bar">
+                    <button id="close-logout-modal"><i class="fas fa-arrow-left"></i></button>
+                    <span translate="logout.title">Déconnexion</span>
+                </div>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+                <p translate="logout.desc" style="font-size: 14px; color: var(--text-muted);">
+                    Souhaitez-vous sauvegarder vos données avant de vous déconnecter? Vous pourrez vous reconnecter plus tard en chargeant le Code QR ou le fichier de sauvegarde.
+                </p>
+                <button id="logout-export-qr" class="backup-btn"><i class="fas fa-qrcode"></i> Exporter Code QR</button>
+                <div id="logout-qr-display" style="display: none; flex-direction: column; align-items: center; gap: 10px; padding: 10px; background: var(--bg-color); border-radius: 12px; border: 1px solid var(--border-color);">
+                    <div id="logout-qrcode" style="padding: 10px; background: white; border-radius: 8px;"></div>
+                    <button id="logout-download-qr" class="backup-btn-alt" style="font-size: 12px; padding: 6px 12px; width: auto;"><i class="fas fa-download"></i> Télécharger QR</button>
+                </div>
+                
+                <button id="logout-export-dem" class="backup-btn"><i class="fas fa-download"></i> Sauvegarder en .dem</button>
+                <button id="logout-confirm-btn" class="save-btn" style="background: var(--danger-color); box-shadow: 0 4px 10px rgba(244, 63, 94, 0.3);" translate="logout.confirm">Se déconnecter</button>
+            </div>
+        </div>
+
+        <!-- Selection Modal (For Year, Month, Day Selector Tabs) -->
+        <div id="selection-modal" class="modal modal-partial">
+            <div class="modal-header">
+                <div class="tabs">
+                    <div class="tab active" data-tab="years" translate="selection.year">Year</div>
+                    <div class="tab" data-tab="months" translate="selection.month">Month</div>
+                    <div class="tab" data-tab="days" translate="selection.day">Day</div>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="year-grid-container" class="tab-content active-content">
+                    <div id="year-grid" class="grid"></div>
+                </div>
+                <div id="month-grid-container" class="tab-content">
+                    <div id="month-grid" class="grid"></div>
+                </div>
+                <div id="day-grid-container" class="tab-content">
+                    <div id="day-grid" class="grid"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="close-modal" translate="selection.close">Close</button>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+
+</html>
