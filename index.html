@@ -354,8 +354,8 @@
                 </div>
             </div>
             <div class="modal-body" style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">
-                <input type="text" id="calc-display" class="calc-display" readonly value="0" style="margin-bottom: 2px; height: 44px; font-size: 20px; padding: 6px 12px;">
-                <div id="calc-preview" style="font-size: 13px; text-align: right; color: var(--text-muted); min-height: 18px; font-weight: 500; padding: 0 4px; margin-bottom: 2px;"></div>
+                <div id="calc-preview" class="calc-display" readonly value="0" style="margin-bottom: 2px; height: 44px; font-size: 20px; padding: 6px 12px;">0</div>
+                <input type="text" id="calc-display"  style="font-size: 13px; text-align: right; color: var(--text-muted); min-height: 18px; font-weight: 500; padding: 0 4px; margin-bottom: 2px;">
                 <div class="calculator-grid" style="gap: 6px; margin-top: 0;">
                     <button class="calc-btn cmd" style="height: 38px; font-size: 16px;" onclick="pressCalc('C')">C</button>
                     <button class="calc-btn cmd" style="height: 38px; font-size: 16px;" onclick="pressCalc('Backspace')"><i class="fas fa-backspace"></i></button>
@@ -379,8 +379,9 @@
                     
                     <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('0')">0</button>
                     <button class="calc-btn num" style="height: 38px; font-size: 16px;" onclick="pressCalc('.')">.</button>
-                    <button class="calc-btn op" style="height: 38px; font-size: 16px;" onclick="pressCalc('+')">+</button>
                     <button class="calc-btn equal" style="height: 38px; font-size: 16px;" onclick="pressCalc('=')">=</button>
+                    <button class="calc-btn op" style="height: 38px; font-size: 16px;" onclick="pressCalc('+')">+</button>
+                   
                 </div>
                 <button id="calc-insert-btn" class="calc-insert-btn" style="margin-top: 4px; padding: 10px; font-size: 14px;" onclick="insertCalcValue()">Use Amount</button>
             </div>

@@ -2466,7 +2466,7 @@ function setupInteractions() {
             : (appSettings.lang === 'rw' 
                 ? "Ese urashaka gusohoka by'ukuri? Amakuru yose utabitse azasibwa burundu."
                 : (appSettings.lang === 'rn'
-                    ? "Ese urashaka gusohoka by'ukuri? Amakuru yose utabitse azasibwa burundu."
+                    ? "Ese urashaka gusohoka vy'ukuri? Amakuru yose utabitse aca atakara burundu."
                     : "Are you sure you want to log out? All unsaved local data will be permanently lost."));
         if (confirm(confirmMsg)) {
             localStorage.clear();

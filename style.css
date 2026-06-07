@@ -1320,7 +1320,7 @@ body.dark-theme .warning-banner {
 .calc-btn.equal {
     background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
     color: white;
-    grid-column: span 2;
+    
 }
 
 .calc-btn:hover {
