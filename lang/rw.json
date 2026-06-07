@@ -1,0 +1,131 @@
+{
+  "app": {
+    "title": "Menap - Imicungire y'Ibiribwa",
+    "subtitle": "Gupanga no gukurikirana ingengo y'imari y'ibiribwa mu rugo"
+  },
+  "setup": {
+    "title": "Murakaza neza kuri Menap",
+    "desc": "Panga kandi ukurikirane ingengo y'imari y'ibiribwa mu rugo rwawe, menya igihe ibiribwa bishiraho, kandi ubone integuza iyo ibiribwa bishize ingengo y'imari itararangira.",
+    "select_lang": "Hitamo Ururimi",
+    "select_currency": "Hitamo Ifaranga Urakoresha",
+    "start_btn": "Tangira"
+  },
+  "search": {
+    "placeholder": "Shakisha ingengo y'imari, ibiribwa, cyangwa ibyo waguze...",
+    "empty": "Nta cyabonetse kijyanye n'ibyo ushakisha."
+  },
+  "settings": {
+    "title": "Amagenamiterere",
+    "theme_label": "Uburyo bugaragara",
+    "theme_light": "Urumuri",
+    "theme_dark": "Umwijima",
+    "lang_label": "Ururimi rw'aplikasiyo",
+    "currency_label": "Ifaranga ry'ibanze",
+    "export_label": "Kohereza ibyabitswe",
+    "export_desc": "Bika ingengo z'imari, ibiribwa, ibyo waguze, n'amagenamiterere byose muri dosiye ifunze (.dem).",
+    "export_btn": "Kohereza muri .dem",
+    "import_label": "Kugarura ibyabitswe",
+    "import_desc": "Garura amakuru n'amagenamiterere wari wabitse muri dosiye ya (.dem cyangwa .sem).",
+    "import_btn": "Kugarura kuva kuri .dem",
+    "import_success": "Amakuru yagarutse neza! Aplikasiyo irasubira gutangira...",
+    "import_error": "Ntibyashobotse kugarura amakuru. Reba niba dosiye ari iy'ukuri (.dem cyangwa .sem).",
+    "font_label": "Ubunini bw'indome",
+    "font_demo": "Uyu ni umwandiko wo kugererezako..."
+  },
+  "dashboard": {
+    "title": "Ibihagaze",
+    "viewing_status": "Amakuru yo ku itariki:",
+    "progression": "Igihe cy'Ingengo y'Imari Gishize",
+    "amount_spent": "Amafaranga Yakoreshejwe",
+    "remaining": "Amafaranga Asigaye",
+    "exhausted_early": "Ibiribwa Byashize Mbere",
+    "no_budgets": "Nta ngengo y'imari ifite itariki ihuye n'iyo wahisemo. Kanda hano uyihange!",
+    "create_btn": "Hanga Ingengo y'Imari Nshya",
+    "active_budgets": "Ingengo z'Imari Zikora",
+    "days_elapsed": "Iminsi {elapsed} kuri {total} ishize",
+    "spent_vs_budget": "Yakoreshejwe {spent} kuri {budget}",
+    "items_exhausted_warning": "Iburira: Ibiribwa {count} byashize ingengo y'imari itararangira!"
+  },
+  "budget": {
+    "create_title": "Hanga Ingengo y'Imari Nshya",
+    "edit_title": "Hindura Ingengo y'Imari",
+    "name": "Izina ry'Ingengo y'Imari",
+    "name_placeholder": "Urugero: Ibiribwa bya Kamena",
+    "start_date": "Itariki yo Gutangira",
+    "duration": "Igihe kizamara",
+    "duration_value": "Ingano y'ibihe",
+    "duration_day": "Umunsi (Iminsi)",
+    "duration_week": "Icyumweru (Ibyumweru)",
+    "duration_month": "Ukwezi (Amezi)",
+    "duration_year": "Umwaka (Imyaka)",
+    "save": "Bika Ingengo y'Imari",
+    "delete": "Siba Ingengo y'Imari",
+    "delete_confirm": "Ese urashaka gusiba iyi ngengo y'imari n'ibiyirimo byose?",
+    "add_item": "Kongeramo Ikiribwa",
+    "no_items": "Nta kiribwa kirashyirwa muri iyi ngengo y'imari.",
+    "days_left": "Hasigaye iminsi {count}",
+    "days_over": "Yarangiye hashize iminsi {count}",
+    "not_started": "Izatangira mu minsi {count}"
+  },
+  "item": {
+    "create_title": "Kongeramo Ikiribwa",
+    "name": "Izina ry'Ikiribwa",
+    "name_placeholder": "Urugero: Umuceri, Inyama, Amata...",
+    "budgeted": "Amafaranga Ateganyijwe",
+    "spent": "Ayakoreshejwe yose",
+    "status": "Uko bihagaze",
+    "active": "Biracyahari",
+    "exhausted": "Byashize Mbere !",
+    "mark_exhausted": "Garagaza ko byashize",
+    "save": "Bika Ikiribwa",
+    "delete": "Siba Ikiribwa",
+    "add_purchase": "Ongeramo ibyo waguze",
+    "purchases_title": "Ibyaguzwe byose",
+    "no_purchases": "Nta kintu kirandikwa cyaguzwe kuri iki kiribwa.",
+    "exhausted_date": "Byashize ku itariki: {date}",
+    "refill_title": "Kongera ibiribwa",
+    "refill_btn": "Kongera",
+    "advice_desc": "Inama: '{name}' yashize mbere ubushize. Turakugira inama yo guteganya {suggested} ({original} iy'ibanze + {refills} inygegeranyo)."
+  },
+  "purchase": {
+    "create_title": "Andika Ibyaguzwe",
+    "date": "Itariki wabyuguriye",
+    "amount": "Amafaranga wishyuye",
+    "qty": "Ingano (ntibgahatirwa)",
+    "qty_placeholder": "Urugero: 5kg, litiro 10",
+    "note": "Inyandiko (ntibgahatirwa)",
+    "note_placeholder": "Urugero: Wabyuguriye ku isoko",
+    "save": "Bika Ibyaguzwe",
+    "delete_confirm": "Ese urashaka gusiba ibi byaguzwe?"
+  },
+  "nav": {
+    "dashboard": "Ibihagaze",
+    "search": "Shakisha",
+    "settings": "Amagenamiterere",
+    "info": "Hari ico umenyesha?",
+    "share": "Sangira Aplikasiyo",
+    "calculator": "Kubara",
+    "logout": "Gusohoka"
+  },
+  "contact": {
+    "title": "Hari ico umenyesha?",
+    "version": "Version",
+    "author": "Umutunganyi",
+    "desc": "Menap yagenewe gufasha ingo gupanga ingengo z'imari z'ibiribwa, gukurikirana ibikoreshwa, no gucunga neza ibiribwa mu rugo.",
+    "contact_us": "Twandikire"
+  },
+  "loading": {
+    "text": "Menap irafunguka..."
+  },
+  "selection": {
+    "year": "Umwaka",
+    "month": "Ukwezi",
+    "day": "Umunsi",
+    "close": "Funga"
+  },
+  "logout": {
+    "title": "Gusohoka",
+    "desc": "Ese urashaka kubika amakuru yawe mbere yo gusohoka? Uzashobora kugaruka ukoresheje dosiye ya QR code cyangwa dosiye ya .dem wari wabitse.",
+    "confirm": "Sohoka"
+  }
+}

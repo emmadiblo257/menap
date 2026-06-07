@@ -1,0 +1,131 @@
+{
+  "app": {
+    "title": "Menap - Budget Alimentaire",
+    "subtitle": "Suivez et optimisez le budget alimentaire de votre ménage"
+  },
+  "setup": {
+    "title": "Bienvenue sur Menap",
+    "desc": "Planifiez et gérez la consommation alimentaire de votre ménage, surveillez la disponibilité de chaque aliment, et soyez alerté si un aliment s'épuise tôt.",
+    "select_lang": "Sélectionner la Langue",
+    "select_currency": "Sélectionner la Devise par Défaut",
+    "start_btn": "Commencer"
+  },
+  "search": {
+    "placeholder": "Rechercher des budgets, aliments ou achats...",
+    "empty": "Aucun résultat ne correspond à votre recherche."
+  },
+  "settings": {
+    "title": "Paramètres",
+    "theme_label": "Thème de l'application",
+    "theme_light": "Mode Clair",
+    "theme_dark": "Mode Sombre",
+    "lang_label": "Langue de l'application",
+    "currency_label": "Devise par Défaut",
+    "export_label": "Exporter les données",
+    "export_desc": "Sauvegardez tous vos budgets, aliments, achats et paramètres dans un fichier de sauvegarde crypté (.dem).",
+    "export_btn": "Exporter en .dem",
+    "import_label": "Restaurer les données",
+    "import_desc": "Restaurez vos données et paramètres à partir d'un fichier de sauvegarde (.dem ou .sem).",
+    "import_btn": "Importer depuis .dem",
+    "import_success": "Données restaurées avec succès ! Rechargement de l'application...",
+    "import_error": "Échec de la restauration. Veuillez vérifier que le fichier est un fichier .dem ou .sem valide.",
+    "font_label": "Taille de la Police",
+    "font_demo": "Ceci est un aperçu de la taille du texte..."
+  },
+  "dashboard": {
+    "title": "Tableau de Bord",
+    "viewing_status": "Statut affiché pour le :",
+    "progression": "Progression du Temps du Budget",
+    "amount_spent": "Progression des Dépenses",
+    "remaining": "Budget Restant",
+    "exhausted_early": "Aliments Épuisés Tôt",
+    "no_budgets": "Aucun budget actif pour la date sélectionnée. Cliquez ci-dessous pour planifier !",
+    "create_btn": "Créer un Nouveau Budget",
+    "active_budgets": "Budgets Actifs",
+    "days_elapsed": "{elapsed} sur {total} jours écoulés",
+    "spent_vs_budget": "{spent} sur {budget} dépensés",
+    "items_exhausted_warning": "Attention : {count} aliment(s) épuisé(s) avant la fin du budget !"
+  },
+  "budget": {
+    "create_title": "Créer un Nouveau Budget",
+    "edit_title": "Modifier le Budget",
+    "name": "Nom du Budget",
+    "name_placeholder": "Ex : Budget Alimentaire Juin",
+    "start_date": "Date de Début",
+    "duration": "Type de Durée",
+    "duration_value": "Nombre de Périodes",
+    "duration_day": "Jour(s)",
+    "duration_week": "Semaine(s)",
+    "duration_month": "Mois(s)",
+    "duration_year": "Année(s)",
+    "save": "Créer le Budget",
+    "delete": "Supprimer le Budget",
+    "delete_confirm": "Êtes-vous sûr de vouloir supprimer ce budget et tout son contenu ?",
+    "add_item": "Ajouter Aliment",
+    "no_items": "Aucun aliment ajouté à ce budget pour le moment.",
+    "days_left": "{count} jours restants",
+    "days_over": "Terminé il y a {count} jours",
+    "not_started": "Commence dans {count} jours"
+  },
+  "item": {
+    "create_title": "Ajouter un Aliment",
+    "name": "Nom de l'Aliment",
+    "name_placeholder": "Ex : Riz, Viande, Lait...",
+    "budgeted": "Montant Budgétisé",
+    "spent": "Total Dépensé",
+    "status": "Disponibilité",
+    "active": "Disponible",
+    "exhausted": "Épuisé Tôt !",
+    "mark_exhausted": "Marquer comme Épuisé",
+    "save": "Ajouter l'Aliment",
+    "delete": "Supprimer l'Aliment",
+    "add_purchase": "Ajouter Achat",
+    "purchases_title": "Liste des Achats",
+    "no_purchases": "Aucun achat enregistré pour cet aliment.",
+    "exhausted_date": "Épuisé le : {date}",
+    "refill_title": "Alimenter le stock",
+    "refill_btn": "Alimenter",
+    "advice_desc": "Conseil: '{name}' s'est épuisé tôt lors du dernier budget. Nous conseillons de budgétiser {suggested} ({original} original + {refills} d'ajout) pour cette période."
+  },
+  "purchase": {
+    "create_title": "Enregistrer un Achat",
+    "date": "Date de l'Achat",
+    "amount": "Montant Payé",
+    "qty": "Quantité (facultatif)",
+    "qty_placeholder": "Ex : 5kg, 10 litres",
+    "note": "Note (facultatif)",
+    "note_placeholder": "Ex : Achat au supermarché",
+    "save": "Enregistrer l'Achat",
+    "delete_confirm": "Supprimer cet achat ?"
+  },
+  "nav": {
+    "dashboard": "Tableau de Bord",
+    "search": "Rechercher",
+    "settings": "Paramètres",
+    "info": "À propos de Menap",
+    "share": "Partager l'App",
+    "calculator": "Calculatrice",
+    "logout": "Déconnexion"
+  },
+  "contact": {
+    "title": "À propos de Menap",
+    "version": "Version",
+    "author": "Développeur",
+    "desc": "Menap aide les ménages à planifier leurs budgets de consommation alimentaire, à surveiller la disponibilité des ressources, et à mieux gérer les imprévus.",
+    "contact_us": "Support technique"
+  },
+  "loading": {
+    "text": "Chargement de Menap..."
+  },
+  "selection": {
+    "year": "Année",
+    "month": "Mois",
+    "day": "Jour",
+    "close": "Fermer"
+  },
+  "logout": {
+    "title": "Déconnexion",
+    "desc": "Souhaitez-vous sauvegarder vos données avant de vous déconnecter? Vous pourrez vous reconnecter plus tard en chargeant le Code QR ou le fichier de sauvegarde.",
+    "confirm": "Se déconnecter"
+  }
+}

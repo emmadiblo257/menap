@@ -1,0 +1,131 @@
+{
+  "app": {
+    "title": "Menap - Food Budget Planner",
+    "subtitle": "Track and optimize your household food budgets"
+  },
+  "setup": {
+    "title": "Welcome to Menap",
+    "desc": "Plan and monitor your household food budgets, track item availability, and get alerts when items run out early.",
+    "select_lang": "Select Language",
+    "select_currency": "Select Default Currency",
+    "start_btn": "Get Started"
+  },
+  "search": {
+    "placeholder": "Search budgets, items, or purchases...",
+    "empty": "No items found matching your query."
+  },
+  "settings": {
+    "title": "Settings",
+    "theme_label": "Application Theme",
+    "theme_light": "Light Theme",
+    "theme_dark": "Dark Theme",
+    "lang_label": "Application Language",
+    "currency_label": "Default Currency",
+    "export_label": "Export Data",
+    "export_desc": "Save all your budgets, items, purchases, and settings into an encrypted backup file (.dem).",
+    "export_btn": "Export to .dem",
+    "import_label": "Restore Data",
+    "import_desc": "Restore your data and settings from a previously saved backup file (.dem or .sem).",
+    "import_btn": "Import from .dem",
+    "import_success": "Data restored successfully! Reloading application...",
+    "import_error": "Failed to restore data. Please ensure the file is a valid .dem or .sem backup.",
+    "font_label": "Font Size",
+    "font_demo": "This is a preview of the text size..."
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "viewing_status": "Viewing status for:",
+    "progression": "Budget Time Progress",
+    "amount_spent": "Budget Spending Progress",
+    "remaining": "Remaining Budget",
+    "exhausted_early": "Items Finished Early",
+    "no_budgets": "No active budgets for the selected date. Click below to plan one!",
+    "create_btn": "Create New Budget",
+    "active_budgets": "Active Budgets",
+    "days_elapsed": "{elapsed} of {total} days elapsed",
+    "spent_vs_budget": "{spent} of {budget} spent",
+    "items_exhausted_warning": "Warning: {count} items ran out before budget ended!"
+  },
+  "budget": {
+    "create_title": "Create a New Budget",
+    "edit_title": "Edit Budget",
+    "name": "Budget Name",
+    "name_placeholder": "e.g., June Food Budget",
+    "start_date": "Start Date",
+    "duration": "Duration Type",
+    "duration_value": "Duration Count",
+    "duration_day": "Day(s)",
+    "duration_week": "Week(s)",
+    "duration_month": "Month(s)",
+    "duration_year": "Year(s)",
+    "save": "Create Budget",
+    "delete": "Delete Budget",
+    "delete_confirm": "Are you sure you want to delete this budget and all its contents?",
+    "add_item": "Add Food Item",
+    "no_items": "No food items added to this budget yet.",
+    "days_left": "{count} days remaining",
+    "days_over": "Ended {count} days ago",
+    "not_started": "Starts in {count} days"
+  },
+  "item": {
+    "create_title": "Add Food Item",
+    "name": "Food Name",
+    "name_placeholder": "e.g., Rice, Meat, Milk...",
+    "budgeted": "Budgeted Amount",
+    "spent": "Total Spent",
+    "status": "Availability",
+    "active": "Available",
+    "exhausted": "Exhausted Early!",
+    "mark_exhausted": "Mark as Exhausted",
+    "save": "Add Item",
+    "delete": "Remove Item",
+    "add_purchase": "Add Purchase",
+    "purchases_title": "Purchases List",
+    "no_purchases": "No purchases recorded for this item.",
+    "exhausted_date": "Exhausted on: {date}",
+    "refill_title": "Refill Stock",
+    "refill_btn": "Refill",
+    "advice_desc": "Tip: '{name}' ran out early in your last budget. We suggest budgeting {suggested} (original {original} + refill {refills}) for this interval."
+  },
+  "purchase": {
+    "create_title": "Record Purchase",
+    "date": "Purchase Date",
+    "amount": "Amount Paid",
+    "qty": "Quantity (optional)",
+    "qty_placeholder": "e.g., 5kg, 10 liters",
+    "note": "Note (optional)",
+    "note_placeholder": "e.g., Bought at Carrefour",
+    "save": "Record Purchase",
+    "delete_confirm": "Delete this purchase?"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "search": "Search Items",
+    "settings": "Settings",
+    "info": "About Menap",
+    "share": "Share App",
+    "calculator": "Calculator",
+    "logout": "Log Out"
+  },
+  "contact": {
+    "title": "About Menap",
+    "version": "Version",
+    "author": "Developer",
+    "desc": "Menap is designed to help households track food budgets, monitor resource availability, and plan consumption efficiently.",
+    "contact_us": "Support"
+  },
+  "loading": {
+    "text": "Loading Menap..."
+  },
+  "selection": {
+    "year": "Year",
+    "month": "Month",
+    "day": "Day",
+    "close": "Close"
+  },
+  "logout": {
+    "title": "Log Out",
+    "desc": "Would you like to save your data before logging out? You can log in later by loading the QR Code or the backup file.",
+    "confirm": "Log Out"
+  }
+}
