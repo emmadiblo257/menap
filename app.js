@@ -1,2528 +1,1671 @@
-// Menap Application Logic
-// Built on vanilla JS + LangJS
+/**
+ * Menap App v4.0
+ */
 
-let appSettings = {
-    lang: 'fr',
-    currency: 'BIF',
-    theme: 'light',
-    isInitialized: false,
-    soundEnabled: true,
-    profile: {
-        firstName: '',
-        lastName: '',
-        email: '',
-        photo: ''
-    }
+// ─── État global ───
+const state = {
+  currentView: 'dashboard',
+  currentDate: new Date(),
+  currentBudgetId: null,
+  currentItemId: null,
+  editBudgetId: null,
+  cameraStream: null,
+  cameraScanMode: null,
+  cameraScanInterval: null,
+  lang: null,
+  currency: 'BIF',
+  theme: 'light',
+  calcTarget: null
 };
 
-let budgets = [];
-let activeBudget = null;
-let currentView = 'dashboard'; // 'dashboard' or 'budget_detail'
+// ─── Devises ───
+const CURRENCY_SYMBOLS = { BIF: 'FBu', RWF: 'FRw', EUR: '€', USD: '$' };
+const MONTHS_FR = ['Janv','Févr','Mars','Avr','Mai','Juin','Juil','Août','Sept','Oct','Nov','Déc'];
 
-// Date selection state
-let viewDate = new Date(); // Default to today
-let activeSelectionTab = 'years';
-let selectedFoodItemForPurchase = null;
-let selectedFoodItemForPurchasesList = null;
-let selectedFoodItemForRefill = null;
-window.activeCalculatorInput = null;
-
-let lang = null;
-
-// Web Audio API Sound Synthesizer (fully offline sound effects)
-let audioCtx = null;
-function playSound(type) {
-    if (appSettings.soundEnabled === false) return;
-    try {
-        if (!audioCtx) {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume();
-        }
-        const osc = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        osc.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-
-        const now = audioCtx.currentTime;
-
-        if (type === 'success') {
-            // High-pitched coin sound
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(587.33, now); // D5
-            osc.frequency.setValueAtTime(880, now + 0.08); // A5
-            gainNode.gain.setValueAtTime(0.08, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
-            osc.start(now);
-            osc.stop(now + 0.25);
-        } else if (type === 'warning') {
-            // Alert chime
-            osc.type = 'triangle';
-            osc.frequency.setValueAtTime(330, now); // E4
-            osc.frequency.setValueAtTime(220, now + 0.12); // A3
-            gainNode.gain.setValueAtTime(0.12, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
-            osc.start(now);
-            osc.stop(now + 0.35);
-        } else if (type === 'click') {
-            // Short pop
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(600, now);
-            gainNode.gain.setValueAtTime(0.03, now);
-            gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
-            osc.start(now);
-            osc.stop(now + 0.04);
-        }
-    } catch (e) {
-        console.warn("Sound play failed:", e);
-    }
-}
-
-// Initialisation
-async function init() {
-    toggleLoading(true);
-    loadSettings();
-    loadBudgets();
-    applyTheme();
-
-    // Setup LangJS
-    lang = new LangJS({
-        availableLanguages: ['rw', 'rn', 'en', 'fr'],
-        defaultLanguage: appSettings.lang,
-        languagePath: './lang/',
-        persistKey: 'menap_lang_pref',
-        debug: true,
-        onLanguageChange: (newLang) => {
-            appSettings.lang = newLang;
-            saveSettings();
-            updateUIStrings();
-            renderUI();
-        }
-    });
-
-    try {
-        await lang.init();
-        updateUIStrings();
-        updateProfileUI();
-        
-        // Draggable calculator
-        const calcModal = document.getElementById('calculator-modal');
-        const calcHeader = document.getElementById('calculator-drag-header');
-        if (calcModal && calcHeader) {
-            makeElementDraggable(calcModal, calcHeader);
-        }
-        
-        if (!appSettings.isInitialized) {
-            showOnboarding();
-        } else {
-            setupDateState();
-            setupInteractions();
-            renderUI();
-            
-            // Track active focused inputs for the smart calculator
-            setupFocusTracker();
-        }
-    } catch (err) {
-        console.error("Initialization failed:", err);
-    } finally {
-        toggleLoading(false);
-    }
-}
-
-function loadSettings() {
-    const saved = localStorage.getItem('menap_settings');
-    if (saved) {
-        appSettings = { ...appSettings, ...JSON.parse(saved) };
-    }
-}
-
-function saveSettings() {
-    localStorage.setItem('menap_settings', JSON.stringify(appSettings));
-}
-
-function loadBudgets() {
-    const saved = localStorage.getItem('menap_budgets');
-    if (saved) {
-        budgets = JSON.parse(saved);
-    } else {
-        budgets = [];
-    }
-}
-
-function saveBudgets() {
-    localStorage.setItem('menap_budgets', JSON.stringify(budgets));
-}
-
-function applyTheme() {
-    document.body.className = appSettings.theme === 'dark' ? 'dark-theme' : 'light-theme';
-    const themeSelect = document.getElementById('theme-select');
-    if (themeSelect) themeSelect.value = appSettings.theme;
-}
-
-// Removed font size helpers
-
-function setupDateState() {
-    // Current date defaults to today
-    viewDate = new Date();
-    updateHeaderDateLabels();
-}
-
-function updateHeaderDateLabels() {
-    const yearLabel = document.getElementById('current-year');
-    const monthLabel = document.getElementById('current-month');
-    const dayLabel = document.getElementById('current-day');
-
-    if (yearLabel) yearLabel.innerText = viewDate.getFullYear();
-    
-    // Pad month and day
-    const monthStr = String(viewDate.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(viewDate.getDate()).padStart(2, '0');
-
-    if (monthLabel) monthLabel.innerText = monthStr;
-    if (dayLabel) dayLabel.innerText = dayStr;
-}
-
-let tempProfilePic = '';
-
-function compressProfilePic(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const img = new Image();
-            img.onload = function() {
-                const canvas = document.createElement('canvas');
-                canvas.width = 32;
-                canvas.height = 32;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, 32, 32);
-                const compressed = canvas.toDataURL('image/jpeg', 0.25);
-                resolve(compressed);
-            };
-            img.onerror = reject;
-            img.src = e.target.result;
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-}
-
-// Base64 & shifting helpers for binary-gibberish and QR-data conversions
-function uint8ToBase64(uint8) {
-    let binary = '';
-    const len = uint8.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(uint8[i]);
-    }
-    return window.btoa(binary);
-}
-
-function base64ToUint8(base64) {
-    const binary = window.atob(base64);
-    const len = binary.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
-}
-
-const KEY_MAP = {
-    firstName: 'fn',
-    lastName: 'ln',
-    email: 'em',
-    lang: 'la',
-    currency: 'cu',
-    theme: 'th',
-    soundEnabled: 'se',
-    budgets: 'bu',
-    id: 'id',
-    name: 'na',
-    startDate: 'sd',
-    endDate: 'ed',
-    durationType: 'dt',
-    durationValue: 'dv',
-    items: 'it',
-    budgetedAmount: 'ba',
-    isFinished: 'if',
-    finishedDate: 'fd',
-    purchases: 'pu',
-    date: 'da',
-    amount: 'am',
-    qty: 'qt',
-    note: 'no',
-    refills: 're',
-    food_suggestions: 'fs'
+// ─── Utilitaires ───
+const $ = id => document.getElementById(id);
+const fmt = n => {
+  const sym = CURRENCY_SYMBOLS[state.currency] || state.currency;
+  return `${(parseFloat(n)||0).toLocaleString('fr-FR',{maximumFractionDigits:0})} ${sym}`;
 };
+const today = () => new Date().toISOString().split('T')[0];
+const pad = n => String(n).padStart(2,'0');
+const dateStr = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const escAttr = s => String(s||'').replace(/'/g,"\\'");
 
-const REVERSE_KEY_MAP = {};
-for (const key in KEY_MAP) {
-    REVERSE_KEY_MAP[KEY_MAP[key]] = key;
+function calcEndDate(start, type, val) {
+  const d = new Date(start); const v = parseInt(val)||1;
+  if (type==='day') d.setDate(d.getDate()+v);
+  else if (type==='week') d.setDate(d.getDate()+v*7);
+  else if (type==='month') d.setMonth(d.getMonth()+v);
+  else if (type==='year') d.setFullYear(d.getFullYear()+v);
+  d.setDate(d.getDate()-1);
+  return d.toISOString().split('T')[0];
 }
 
-function mapKeys(obj, map) {
-    if (Array.isArray(obj)) {
-        return obj.map(item => mapKeys(item, map));
-    } else if (obj !== null && typeof obj === 'object') {
-        const newObj = {};
-        for (const key in obj) {
-            if (obj.hasOwnProperty(key)) {
-                const newKey = map[key] || key;
-                newObj[newKey] = mapKeys(obj[key], map);
-            }
-        }
-        return newObj;
-    }
-    return obj;
+// ─── Toast ───
+function showToast(msg, type='info') {
+  const el = document.createElement('div');
+  el.textContent = msg;
+  const bg = type==='error'?'#f43f5e':type==='success'?'#10b981':'#0d9488';
+  el.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${bg};color:white;padding:10px 20px;border-radius:20px;font-weight:700;font-size:14px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);white-space:nowrap;animation:toastIn .2s ease-out;pointer-events:none;max-width:90vw;text-align:center`;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(), 3000);
 }
 
-function shrinkData(obj) {
-    return mapKeys(obj, KEY_MAP);
+function showLoading(show, text='Chargement...') {
+  const el = $('loading'); el.style.display = show ? 'flex' : 'none';
+  const t = $('loading-text'); if (t) t.textContent = text;
 }
 
-function expandData(obj) {
-    return mapKeys(obj, REVERSE_KEY_MAP);
+// ─── Toggle password ───
+function togglePw(inputId, btn) {
+  const input = $(inputId);
+  input.type = input.type==='password' ? 'text' : 'password';
+  btn.querySelector('i').className = input.type==='password' ? 'fas fa-eye' : 'fas fa-eye-slash';
 }
 
-function encryptProfile(profileObj) {
-    const json = JSON.stringify(profileObj);
-    let encoded = '';
-    for (let i = 0; i < json.length; i++) {
-        encoded += String.fromCharCode(json.charCodeAt(i) + 5);
-    }
-    return btoa(unescape(encodeURIComponent(encoded)));
-}
-
-function decryptProfile(encryptedStr) {
-    const decoded = decodeURIComponent(escape(atob(encryptedStr)));
-    let decrypted = '';
-    for (let i = 0; i < decoded.length; i++) {
-        decrypted += String.fromCharCode(decoded.charCodeAt(i) - 5);
-    }
-    return JSON.parse(decrypted);
-}
-
-function updateProfileUI() {
-    const p = appSettings.profile || { firstName: '', lastName: '', email: '', photo: '' };
-    
-    const drawerName = document.getElementById('drawer-profile-name');
-    const drawerEmail = document.getElementById('drawer-profile-email');
-    const drawerAvatar = document.getElementById('drawer-avatar');
-    const drawerAvatarFallback = document.getElementById('drawer-avatar-fallback');
-
-    if (p.firstName) {
-        if (drawerName) drawerName.innerText = `${p.firstName} ${p.lastName}`;
-        if (drawerEmail) drawerEmail.innerText = p.email;
-        if (drawerAvatar && p.photo) {
-            drawerAvatar.src = p.photo;
-            drawerAvatar.style.display = 'block';
-            if (drawerAvatarFallback) drawerAvatarFallback.style.display = 'none';
-        } else {
-            if (drawerAvatar) drawerAvatar.style.display = 'none';
-            if (drawerAvatarFallback) drawerAvatarFallback.style.display = 'flex';
-        }
-    }
-
-    const settingsName = document.getElementById('settings-profile-name');
-    const settingsEmail = document.getElementById('settings-profile-email');
-    const settingsPic = document.getElementById('settings-profile-pic');
-    const settingsPicFallback = document.getElementById('settings-profile-pic-fallback');
-
-    if (p.firstName) {
-        if (settingsName) settingsName.innerText = `${p.firstName} ${p.lastName}`;
-        if (settingsEmail) settingsEmail.innerText = p.email;
-        if (settingsPic && p.photo) {
-            settingsPic.src = p.photo;
-            settingsPic.style.display = 'block';
-            if (settingsPicFallback) settingsPicFallback.style.display = 'none';
-        } else {
-            if (settingsPic) settingsPic.style.display = 'none';
-            if (settingsPicFallback) settingsPicFallback.style.display = 'flex';
-        }
-    }
-}
-
-function generateProfileQRCode() {
-    const p = appSettings.profile;
-    if (!p || !p.firstName) {
-        alert("Profil incomplet.");
-        return;
-    }
-    
-    // Simple QR Code payload without photo to ensure high scannability and avoid density issues
-    const qrData = {
-        firstName: p.firstName,
-        lastName: p.lastName,
-        email: p.email,
-        lang: appSettings.lang,
-        currency: appSettings.currency,
-        theme: appSettings.theme,
-        soundEnabled: appSettings.soundEnabled,
-        budgets: budgets,
-        food_suggestions: JSON.parse(localStorage.getItem('menap_food_suggestions') || '[]').slice(0, 15)
-    };
-
-    const shrunken = shrinkData(qrData);
-    const jsonStr = JSON.stringify(shrunken);
-    const encryptedBytes = encryptData(jsonStr);
-    const encryptedStr = uint8ToBase64(encryptedBytes);
-    
-    const container = document.getElementById('settings-qr-container');
-    const qrcodeDiv = document.getElementById('qrcode');
-    
-    if (container && qrcodeDiv) {
-        qrcodeDiv.innerHTML = '';
-        container.style.display = 'flex';
-        
-        try {
-            new QRCode(qrcodeDiv, {
-                text: encryptedStr,
-                width: 256,
-                height: 256,
-                colorDark : "#0f766e",
-                colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.M
-            });
-            playSound('success');
-        } catch (error) {
-            console.error("QR Code generation error:", error);
-            alert("Erreur lors de la génération du QR Code.");
-        }
-    }
-}
-
-function downloadProfileQRCode() {
-    const qrcodeDiv = document.getElementById('qrcode');
-    if (!qrcodeDiv) return;
-    const img = qrcodeDiv.querySelector('img');
-    if (img && img.src) {
-        const a = document.createElement('a');
-        a.href = img.src;
-        a.download = `menap_auth_qrcode.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        playSound('success');
-    } else {
-        const canvas = qrcodeDiv.querySelector('canvas');
-        if (canvas) {
-            const a = document.createElement('a');
-            a.href = canvas.toDataURL('image/png');
-            a.download = `menap_auth_qrcode.png`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            playSound('success');
-        } else {
-            alert("Veuillez générer le QR Code.");
-        }
-    }
-}
-
-function generateLogoutQRCode() {
-    const p = appSettings.profile;
-    
-    const qrData = {
-        firstName: p ? p.firstName : '',
-        lastName: p ? p.lastName : '',
-        email: p ? p.email : '',
-        lang: appSettings.lang,
-        currency: appSettings.currency,
-        theme: appSettings.theme,
-        soundEnabled: appSettings.soundEnabled,
-        budgets: budgets,
-        food_suggestions: JSON.parse(localStorage.getItem('menap_food_suggestions') || '[]').slice(0, 15)
-    };
-
-    const shrunken = shrinkData(qrData);
-    const jsonStr = JSON.stringify(shrunken);
-    const encryptedBytes = encryptData(jsonStr);
-    const encryptedStr = uint8ToBase64(encryptedBytes);
-    
-    const displayDiv = document.getElementById('logout-qr-display');
-    const qrcodeDiv = document.getElementById('logout-qrcode');
-    
-    if (displayDiv && qrcodeDiv) {
-        qrcodeDiv.innerHTML = '';
-        displayDiv.style.display = 'flex';
-        
-        try {
-            new QRCode(qrcodeDiv, {
-                text: encryptedStr,
-                width: 256,
-                height: 256,
-                colorDark : "#0f766e",
-                colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.M
-            });
-            playSound('success');
-        } catch (error) {
-            console.error("Logout QR Code generation error:", error);
-            alert("Erreur lors de la génération du QR Code.");
-        }
-    }
-}
-
-function downloadLogoutQRCode() {
-    const qrcodeDiv = document.getElementById('logout-qrcode');
-    if (!qrcodeDiv) return;
-    const img = qrcodeDiv.querySelector('img');
-    if (img && img.src) {
-        const a = document.createElement('a');
-        a.href = img.src;
-        a.download = `menap_auth_qrcode.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        playSound('success');
-    } else {
-        const canvas = qrcodeDiv.querySelector('canvas');
-        if (canvas) {
-            const a = document.createElement('a');
-            a.href = canvas.toDataURL('image/png');
-            a.download = `menap_auth_qrcode.png`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            playSound('success');
-        } else {
-            alert("Veuillez d'abord générer le QR Code.");
-        }
-    }
-}
-
-// Onboarding wizard
-function showOnboarding() {
-    const onboarding = document.getElementById('onboarding-screen');
-    if (onboarding) {
-        onboarding.classList.remove('hidden');
-        
-        // Setup initial selects
-        document.getElementById('setup-lang-select').value = appSettings.lang;
-        document.getElementById('setup-currency-select').value = appSettings.currency;
-        
-        // Tab switching
-        const tabCreate = document.getElementById('tab-onboard-create');
-        const tabQR = document.getElementById('tab-onboard-qr');
-        const sectionCreate = document.getElementById('onboard-create-section');
-        const sectionQR = document.getElementById('onboard-qr-section');
-
-        if (tabCreate && tabQR) {
-            tabCreate.onclick = () => {
-                playSound('click');
-                tabCreate.classList.add('active');
-                tabQR.classList.remove('active');
-                sectionCreate.classList.remove('hidden');
-                sectionQR.classList.add('hidden');
-            };
-            tabQR.onclick = () => {
-                playSound('click');
-                tabQR.classList.add('active');
-                tabCreate.classList.remove('active');
-                sectionQR.classList.remove('hidden');
-                sectionCreate.classList.add('hidden');
-            };
-        }
-
-        // Photo loading
-        const picInput = document.getElementById('profile-pic-input');
-        const picPreview = document.getElementById('profile-pic-preview');
-        if (picInput && picPreview) {
-            picInput.onchange = async (e) => {
-                if (e.target.files.length > 0) {
-                    try {
-                        toggleLoading(true);
-                        tempProfilePic = await compressProfilePic(e.target.files[0]);
-                        picPreview.innerHTML = `<img src="${tempProfilePic}" style="width: 100%; height: 100%; object-fit: cover;">`;
-                        playSound('success');
-                    } catch (err) {
-                        alert("Erreur de photo.");
-                    } finally {
-                        toggleLoading(false);
-                    }
-                }
-            };
-        }
-
-        // QR / DEM image/file import in onboarding
-        const qrInput = document.getElementById('onboard-qr-input');
-        if (qrInput) {
-            qrInput.onchange = (e) => {
-                if (e.target.files.length > 0) {
-                    handleImportFile(e.target.files[0]);
-                }
-            };
-        }
-
-        document.getElementById('setup-start-btn').onclick = () => {
-            const chosenLang = document.getElementById('setup-lang-select').value;
-            const chosenCurr = document.getElementById('setup-currency-select').value;
-            const firstName = document.getElementById('profile-first-name').value.trim();
-            const lastName = document.getElementById('profile-last-name').value.trim();
-            const email = document.getElementById('profile-email').value.trim();
-
-            if (!firstName || !lastName || !email) {
-                alert("Veuillez remplir le profil.");
-                return;
-            }
-            
-            appSettings.lang = chosenLang;
-            appSettings.currency = chosenCurr;
-            appSettings.isInitialized = true;
-            appSettings.profile = {
-                firstName,
-                lastName,
-                email,
-                photo: tempProfilePic
-            };
-            
-            saveSettings();
-            
-            toggleLoading(true);
-            lang.setLanguage(chosenLang).then(() => {
-                onboarding.classList.add('hidden');
-                setupDateState();
-                setupInteractions();
-                renderUI();
-                updateProfileUI();
-                toggleLoading(false);
-            }).catch(() => {
-                toggleLoading(false);
-            });
-        };
-    }
-}
-
-// Sync UI inputs with loaded settings
-function updateUIStrings() {
-    const themeSelect = document.getElementById('theme-select');
-    if (themeSelect) themeSelect.value = appSettings.theme;
-
-    const langSelect = document.getElementById('lang-select');
-    if (langSelect) langSelect.value = appSettings.lang;
-
-    const currencySelect = document.getElementById('currency-select');
-    if (currencySelect) currencySelect.value = appSettings.currency;
-}
-
-function formatCurrency(val) {
-    const curr = appSettings.currency || 'RWF';
-    if (curr === 'RWF') return val.toLocaleString() + ' FRw';
-    if (curr === 'BIF') return val.toLocaleString() + ' FBu';
-    if (curr === 'USD') return '$' + val.toLocaleString();
-    if (curr === 'EUR') return val.toLocaleString() + ' €';
-    return val.toLocaleString() + ' ' + curr;
-}
-
-function formatDateString(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    
-    // Return formatted string based on language
-    const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
-    return d.toLocaleDateString(appSettings.lang, options);
-}
-
-// Calculate the end date of a budget based on start date and duration
-function getBudgetEndDate(startDateStr, durationType, durationVal) {
-    const start = new Date(startDateStr);
-    const end = new Date(start);
-    const val = parseInt(durationVal) || 1;
-
-    switch (durationType) {
-        case 'day':
-            end.setDate(start.getDate() + val);
-            break;
-        case 'week':
-            end.setDate(start.getDate() + val * 7);
-            break;
-        case 'month':
-            end.setMonth(start.getMonth() + val);
-            break;
-        case 'year':
-            end.setFullYear(start.getFullYear() + val);
-            break;
-    }
-    // End date is exclusive or inclusive depending on interpretation. 
-    // We treat duration as ending exactly X units later.
-    return end;
-}
-
-// Compute metrics for a budget relative to a reference date
-function getBudgetMetrics(budget, refDate) {
-    const start = new Date(budget.startDate);
-    const end = getBudgetEndDate(budget.startDate, budget.durationType, budget.durationValue);
-    
-    // Strip time portions for day-based comparison
-    start.setHours(0,0,0,0);
-    end.setHours(0,0,0,0);
-    
-    const rDate = new Date(refDate);
-    rDate.setHours(0,0,0,0);
-
-    const totalTime = end.getTime() - start.getTime();
-    const elapsedMs = rDate.getTime() - start.getTime();
-
-    let timeProgress = 0;
-    let daysElapsed = 0;
-    const totalDays = Math.round(totalTime / (1000 * 60 * 60 * 24));
-
-    if (elapsedMs > 0) {
-        if (rDate >= end) {
-            timeProgress = 100;
-            daysElapsed = totalDays;
-        } else {
-            daysElapsed = Math.round(elapsedMs / (1000 * 60 * 60 * 24));
-            timeProgress = (elapsedMs / totalTime) * 100;
-        }
-    }
-
-    // Calculations for spent amount
-    let totalBudgeted = 0;
-    let totalSpent = 0;
-    let itemsExhaustedCount = 0;
-    const exhaustedItemsList = [];
-
-    budget.items && budget.items.forEach(item => {
-        totalBudgeted += parseFloat(item.budgetedAmount) || 0;
-        
-        let itemSpent = 0;
-        item.purchases && item.purchases.forEach(p => {
-            const pDate = new Date(p.date);
-            pDate.setHours(0,0,0,0);
-            
-            // Count purchases made on or before the reference date
-            if (pDate <= rDate) {
-                itemSpent += parseFloat(p.amount) || 0;
-            }
-        });
-        
-        totalSpent += itemSpent;
-
-        // Check if item finished early as of reference date
-        if (item.isFinished && item.finishedDate) {
-            const fDate = new Date(item.finishedDate);
-            fDate.setHours(0,0,0,0);
-            
-            if (fDate <= rDate && fDate < end) {
-                itemsExhaustedCount++;
-                exhaustedItemsList.push({
-                    id: item.id,
-                    name: item.name,
-                    date: item.finishedDate
-                });
-            }
-        }
+// ─── QR Code ───
+function generateQR(containerId, text, size=220) {
+  const container = $(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  if (!text || !window.QRCode) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:20px">QRCode.js non chargé</div>';
+    return;
+  }
+  try {
+    new QRCode(container, {
+      text, width: size, height: size,
+      colorDark: '#1f2937', colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.L
     });
+    setTimeout(() => {
+      const img = container.querySelector('img');
+      const canvas = container.querySelector('canvas');
+      const s = `display:block!important;width:${size}px!important;height:${size}px!important;max-width:100%`;
+      if (img) img.style.cssText = s;
+      if (canvas) canvas.style.cssText = s;
+    }, 80);
+  } catch(e) {
+    container.innerHTML = `<div style="color:red;font-size:12px;padding:10px">Erreur QR: ${e.message}</div>`;
+  }
+}
 
-    let spentProgress = 0;
-    if (totalBudgeted > 0) {
-        spentProgress = (totalSpent / totalBudgeted) * 100;
+function getQRDataUrl(containerId) {
+  const c = $(containerId);
+  if (!c) return null;
+  const canvas = c.querySelector('canvas');
+  const img = c.querySelector('img');
+  if (canvas) return canvas.toDataURL('image/png');
+  if (img) return img.src;
+  return null;
+}
+
+function downloadQR(containerId, filename='menap-qr.png') {
+  const url = getQRDataUrl(containerId);
+  if (!url) { showToast('QR non disponible','error'); return; }
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+}
+
+function generateAuthQR(containerId) {
+  const p = db.getProfile();
+  // Payload léger (errorCorrectionLevel L = faible densité)
+  const data = JSON.stringify({ _m:3, fn:p.first_name, ln:p.last_name, em:p.email, pw:p.password, la: db.getSetting('lang','fr'), cu: db.getSetting('currency','BIF'), th: db.getSetting('theme','light') });
+  generateQR(containerId, data, 220);
+}
+
+function generateInviteQR(containerId) {
+  const p = db.getProfile();
+  const data = JSON.stringify({
+    _t: 'invite',
+    uid: p.user_id,   // uid du gestionnaire invitant
+    mid: p.user_id,
+    mn: `${p.first_name} ${p.last_name}`.trim(),
+    me: p.email,
+    at: Date.now()
+  });
+  generateQR(containerId, data, 220);
+}
+
+// ─── Caméra QR Scanner ───
+function startCameraQRScan(mode) {
+  state.cameraScanMode = mode;
+  openModal('camera-qr-modal');
+  const st = $('camera-qr-status');
+  if (st) st.textContent = '';
+  startCamera();
+}
+
+async function startCamera() {
+  const st = $('camera-qr-status');
+  // Essayer caméra arrière, puis avant, puis sans contrainte
+  const constraints = [
+    { video: { facingMode: { ideal: 'environment' }, width:{ideal:640}, height:{ideal:480} } },
+    { video: { facingMode: 'user', width:{ideal:640}, height:{ideal:480} } },
+    { video: true }
+  ];
+  let stream = null;
+  let lastErr = '';
+  for (const c of constraints) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(c);
+      break;
+    } catch(e) {
+      lastErr = e.name + ': ' + e.message;
     }
-
-    // Status: active, ended, not_started
-    let status = 'active';
-    if (rDate < start) {
-        status = 'not_started';
-    } else if (rDate >= end) {
-        status = 'ended';
+  }
+  if (!stream) {
+    if (st) {
+      st.textContent = 'Caméra non accessible — ' + lastErr;
+      st.style.color = 'var(--danger-color)';
     }
+    return;
+  }
+  try {
+    const video = $('qr-camera-video');
+    state.cameraStream = stream;
+    video.srcObject = stream;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('autoplay', '');
+    video.setAttribute('muted', '');
+    await video.play();
+    if (st) { st.textContent = 'Pointez la caméra vers un QR code…'; st.style.color = ''; }
+    startQRScanLoop();
+  } catch(err) {
+    if (st) { st.textContent = 'Erreur vidéo: ' + err.message; st.style.color = 'var(--danger-color)'; }
+  }
+}
 
+function startQRScanLoop() {
+  const video = $('qr-camera-video'), canvas = $('qr-camera-canvas'), ctx = canvas.getContext('2d');
+  state.cameraScanInterval = setInterval(() => {
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (!window.jsQR) return;
+    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts:'dontInvert' });
+    if (code) {
+      const st = $('camera-qr-status');
+      if (st) st.textContent = '✓ QR détecté!';
+      stopCamera();
+      handleQRScanned(code.data);
+    }
+  }, 200);
+}
+
+function stopCamera() {
+  if (state.cameraScanInterval) { clearInterval(state.cameraScanInterval); state.cameraScanInterval = null; }
+  if (state.cameraStream) { state.cameraStream.getTracks().forEach(t=>t.stop()); state.cameraStream = null; }
+  const v = $('qr-camera-video');
+  if (v) v.srcObject = null;
+}
+
+async function scanQRFromFile(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width; canvas.height = img.height;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+        if (window.jsQR) { const code = jsQR(imageData.data, imageData.width, imageData.height); resolve(code ? code.data : null); }
+        else resolve(null);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function handleQRScanned(data) {
+  closeModal('camera-qr-modal');
+  try {
+    const obj = JSON.parse(data);
+    // QR Auth (re-connexion)
+    if (obj._m === 3 && obj.em) {
+      loginFromQR(obj);
+      return;
+    }
+    // QR Invitation ménage
+    if (obj._t === 'invite' && obj.mid) {
+      handleJoinHousehold(obj);
+      return;
+    }
+    // Ancien format .dem intégré
+    if (obj.type === 'menap_auth' && obj.dem) {
+      const ok = db.importFromDem(obj.dem);
+      if (ok) { showToast('Données restaurées!','success'); setTimeout(()=>location.reload(),1200); }
+      else showToast('QR invalide','error');
+      return;
+    }
+    showToast('Format QR non reconnu','error');
+  } catch(e) {
+    // Tenter comme .dem direct
+    if (data.length > 50) {
+      const ok = db.importFromDem(data);
+      if (ok) { showToast('Données restaurées!','success'); setTimeout(()=>location.reload(),1200); }
+      else showToast('Format QR non reconnu','error');
+    } else {
+      showToast('QR non reconnu','error');
+    }
+  }
+}
+
+function loginFromQR(obj) {
+  // Restaurer le profil depuis le QR et marquer comme connecté
+  db.saveProfile({ user_id: obj.uid || (obj.em+'_'+Date.now()), first_name: obj.fn||'', last_name: obj.ln||'', email: obj.em, password: obj.pw||'' });
+  if (obj.la) db.setSetting('lang', obj.la);
+  if (obj.cu) db.setSetting('currency', obj.cu);
+  if (obj.th) db.setSetting('theme', obj.th);
+  db.setSetting('initialized', '1');
+  showToast(`Bienvenue ${obj.fn||''}!`, 'success');
+  setTimeout(() => location.reload(), 800);
+}
+
+function handleJoinHousehold(inviteData) {
+  const profile = db.getProfile();
+
+  // Règle : un gestionnaire ne peut pas rejoindre un autre ménage
+  if (isCurrentUserManager()) {
+    showToast('Un gestionnaire ne peut pas rejoindre un autre ménage. Transférez vos droits d\'abord.', 'error');
+    return;
+  }
+
+  // Règle : le ménage ne peut avoir qu'un seul gestionnaire
+  const existingManagers = db.getMembers().filter(m => m.role === 'manager');
+  if (existingManagers.length >= 1) {
+    // Vérifier que le gestionnaire invitant correspond bien à celui déjà enregistré
+    const alreadyKnown = existingManagers.find(m => m.user_id === inviteData.uid || m.user_id === inviteData.mid);
+    if (!alreadyKnown) {
+      showToast('Ce ménage a déjà un gestionnaire. Deux gestionnaires ne peuvent pas cohabiter.', 'error');
+      return;
+    }
+  }
+
+  // Ajouter le gestionnaire invitant s'il n'est pas encore enregistré
+  const existMgr = db.getMemberByUserId(inviteData.uid || inviteData.mid);
+  if (!existMgr) {
+    db.addMember({
+      user_id: inviteData.uid || inviteData.mid,
+      first_name: (inviteData.mn||'Gestionnaire').split(' ')[0],
+      last_name: (inviteData.mn||'').split(' ').slice(1).join(' '),
+      email: inviteData.me||'',
+      role: 'manager'
+    });
+  }
+
+  // S'ajouter comme membre
+  if (profile.user_id && !db.getMemberByUserId(profile.user_id)) {
+    db.addMember({
+      user_id: profile.user_id,
+      first_name: profile.first_name,
+      last_name: profile.last_name,
+      email: profile.email,
+      photo: profile.photo,
+      role: 'member'
+    });
+    showToast(`Vous avez rejoint le ménage de ${inviteData.mn||'ce gestionnaire'}!`, 'success');
+  } else {
+    showToast('Vous êtes déjà dans ce ménage','info');
+  }
+  openMembersModal();
+}
+
+// ─── Modals ───
+const modalStack = [];
+
+function openModal(id) {
+  const el = $(id);
+  if (!el) return;
+  el.style.display = 'flex';
+  el.classList.add('show');
+  if (!modalStack.includes(id)) modalStack.push(id);
+  history.pushState(null, '', location.pathname);
+}
+
+function closeModal(id) {
+  const el = $(id);
+  if (!el) return;
+  el.style.display = 'none';
+  el.classList.remove('show');
+  const idx = modalStack.lastIndexOf(id);
+  if (idx >= 0) modalStack.splice(idx, 1);
+  if (id === 'camera-qr-modal') stopCamera();
+}
+
+function closeTopModal() {
+  if (!modalStack.length) return false;
+  closeModal(modalStack[modalStack.length-1]);
+  return true;
+}
+
+window.addEventListener('popstate', e => {
+  e.preventDefault();
+  if (closeTopModal()) { history.pushState(null,'',location.pathname); return; }
+  if (state.currentView==='budget-detail') { history.pushState(null,'',location.pathname); showBudgetsView(); return; }
+  if (state.currentView==='budgets') { history.pushState(null,'',location.pathname); showDashboard(); return; }
+});
+history.pushState(null,'',location.pathname);
+
+// ─── Thème ───
+function applyTheme(theme) {
+  state.theme = theme;
+  document.body.className = theme==='dark' ? 'dark-theme' : 'light-theme';
+  const sel = $('theme-select'); if (sel) sel.value = theme;
+}
+
+// ─── Vues ───
+function showDashboard() {
+  state.currentView = 'dashboard';
+  state.currentBudgetId = null;
+  renderDashboard();
+  history.pushState(null,'',location.pathname);
+}
+
+function showBudgetsView() {
+  state.currentView = 'budgets';
+  state.currentBudgetId = null;
+  renderBudgets();
+  history.pushState(null,'',location.pathname);
+}
+
+function showBudgetDetail(budgetId) {
+  state.currentView = 'budget-detail';
+  state.currentBudgetId = budgetId;
+  renderBudgetDetail(budgetId);
+  history.pushState(null,'',location.pathname);
+}
+
+function goBack() {
+  if (!closeTopModal()) {
+    if (state.currentView==='budget-detail') showBudgetsView();
+    else if (state.currentView==='budgets') showDashboard();
+  }
+}
+
+// ─── Header date ───
+function updateHeaderDate() {
+  const d = state.currentDate;
+  const yEl = $('current-year'), mEl = $('current-month'), dEl = $('current-day');
+  if (yEl) yEl.textContent = d.getFullYear();
+  if (mEl) mEl.textContent = pad(d.getMonth()+1);
+  if (dEl) dEl.textContent = pad(d.getDate());
+}
+
+// ─── Dashboard ───
+function renderDashboard() {
+  const content = $('main-content');
+  const d = state.currentDate, ds = dateStr(d);
+  const budgets = db.getBudgetsByDate(ds);
+  const memberCount = db.getMemberCount();
+
+  let personalSpent = 0;
+  if (memberCount > 0) {
+    db.getBudgets().forEach(b => { personalSpent += db.getTotalSpentByBudget(b.id) / memberCount; });
+  }
+
+  let html = `<div class="dashboard-view">
+    <div class="viewing-date-banner">
+      <span><i class="fas fa-calendar-alt" style="margin-right:8px"></i>${MONTHS_FR[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}</span>
+      <span style="font-size:12px;opacity:.8">${budgets.length} budget(s) actif(s)</span>
+    </div>`;
+
+  if (memberCount > 0) {
+    html += `<div class="personal-spent-card">
+      <div class="icon"><i class="fas fa-user-circle"></i></div>
+      <div class="info">
+        <div class="label">Ma contribution totale</div>
+        <div class="amount">${fmt(personalSpent)}</div>
+      </div>
+    </div>`;
+  }
+
+  if (budgets.length === 0) {
+    html += `<div class="empty-state">
+      <div class="empty-state-icon"><i class="fas fa-folder-open"></i></div>
+      <div style="font-weight:700">Aucun budget actif pour cette date</div>
+      <div style="font-size:13px">Appuyez sur + pour créer un budget</div>
+    </div>`;
+  } else {
+    let totalBudgeted=0, totalSpent=0, exhaustedCount=0;
+    budgets.forEach(b => {
+      db.getItemsByBudget(b.id).forEach(i => { totalBudgeted += i.budgeted_amount; if(i.is_finished) exhaustedCount++; });
+      totalSpent += db.getTotalSpentByBudget(b.id);
+    });
+    const spentPct = totalBudgeted > 0 ? Math.min(100,(totalSpent/totalBudgeted)*100) : 0;
     const remaining = totalBudgeted - totalSpent;
 
-    return {
-        startDate: start,
-        endDate: end,
-        totalDays,
-        daysElapsed,
-        timeProgress,
-        totalBudgeted,
-        totalSpent,
-        spentProgress,
-        remaining,
-        itemsExhaustedCount,
-        exhaustedItemsList,
-        status
-    };
+    html += `<div class="summary-cards">
+      <div class="metric-card success-card">
+        <div class="metric-header"><span>Dépensé</span><i class="fas fa-wallet"></i></div>
+        <div class="metric-value">${fmt(totalSpent)}</div>
+        <div class="metric-label">sur ${fmt(totalBudgeted)}</div>
+      </div>
+      <div class="metric-card ${remaining<0?'alert-card':''}">
+        <div class="metric-header"><span>Restant</span><i class="fas fa-piggy-bank"></i></div>
+        <div class="metric-value">${fmt(remaining)}</div>
+        <div class="metric-label">${spentPct.toFixed(0)}% utilisé</div>
+      </div>
+    </div>`;
+
+    if (exhaustedCount > 0) {
+      html += `<div class="warning-banner">
+        <i class="fas fa-exclamation-triangle"></i>
+        <div><div class="warning-banner-title">${exhaustedCount} achat(s) épuisé(s) tôt!</div><div>Vérifiez vos budgets</div></div>
+      </div>`;
+    }
+
+    html += `<div class="progress-container">
+      <div class="progress-label-row"><span>Progression des dépenses</span><span>${spentPct.toFixed(0)}%</span></div>
+      <div class="progress-track"><div class="progress-fill ${spentPct>90?'danger':'primary'}" style="width:${spentPct}%"></div></div>
+    </div>`;
+
+    html += `<div class="section-title"><span>Budgets Actifs</span><span style="font-size:13px;color:var(--text-muted)">${budgets.length}</span></div>`;
+    budgets.forEach(b => { html += renderBudgetCard(b); });
+  }
+
+  html += `</div><button class="fab" onclick="openCreateBudgetModal()"><i class="fas fa-plus"></i></button>`;
+  content.innerHTML = html;
 }
 
-// Rendering UI Views
-function renderUI() {
-    toggleLoading(false);
-    if (currentView === 'dashboard') {
-        renderDashboard();
-    } else if (currentView === 'budget_detail') {
-        renderBudgetDetail();
-    }
-}
+function renderBudgetCard(b) {
+  const start=new Date(b.start_date), end=new Date(b.end_date), now=new Date();
+  const totalDays = Math.max(1, Math.ceil((end-start)/86400000)+1);
+  const elapsed = Math.max(0, Math.ceil((now-start)/86400000));
+  const daysLeft = Math.max(0, Math.ceil((end-now)/86400000));
+  const timePct = Math.min(100,(elapsed/totalDays)*100);
+  const items = db.getItemsByBudget(b.id);
+  const totalBudgeted = items.reduce((s,i)=>s+i.budgeted_amount, 0);
+  const totalSpent = db.getTotalSpentByBudget(b.id);
+  const spentPct = totalBudgeted > 0 ? Math.min(100,(totalSpent/totalBudgeted)*100) : 0;
+  const exhausted = items.filter(i=>i.is_finished).length;
+  const memberCount = db.getMemberCount();
+  const perMember = memberCount > 1 ? totalSpent/memberCount : null;
+  const fmtDate = d => `${d.getDate()} ${MONTHS_FR[d.getMonth()]}`;
 
-function renderDashboard() {
-    const mainContent = document.getElementById('main-content');
-    if (!mainContent) return;
-
-    // Filter budgets that overlap with the selected year and month
-    const activeYear = viewDate.getFullYear();
-    const activeMonth = viewDate.getMonth(); // 0-11
-
-    const monthlyBudgets = budgets.filter(b => {
-        const start = new Date(b.startDate);
-        const end = getBudgetEndDate(b.startDate, b.durationType, b.durationValue);
-        
-        // Year overlaps
-        const startYear = start.getFullYear();
-        const endYear = end.getFullYear();
-        
-        if (activeYear < startYear || activeYear > endYear) return false;
-        
-        // Month overlaps
-        // Create boundaries for selected month
-        const monthStart = new Date(activeYear, activeMonth, 1);
-        const monthEnd = new Date(activeYear, activeMonth + 1, 0, 23, 59, 59);
-
-        return start <= monthEnd && end >= monthStart;
-    });
-
-    // Check if viewDate corresponds to today's date in local time
-    const isToday = viewDate.toDateString() === new Date().toDateString();
-
-    // Compute aggregate metrics
-    let aggBudgeted = 0;
-    let aggSpent = 0;
-    let aggRemaining = 0;
-    let aggExhaustedCount = 0;
-    const allExhaustedItems = [];
-
-    monthlyBudgets.forEach(b => {
-        const m = getBudgetMetrics(b, viewDate);
-        aggBudgeted += m.totalBudgeted;
-        aggSpent += m.totalSpent;
-        aggRemaining += m.remaining;
-        aggExhaustedCount += m.itemsExhaustedCount;
-        m.exhaustedItemsList.forEach(item => {
-            allExhaustedItems.push({
-                budgetId: b.id,
-                itemId: item.id,
-                budgetName: b.name,
-                itemName: item.name,
-                date: item.date
-            });
-        });
-    });
-
-    let html = `
-        <div class="dashboard-view">
-            <div class="viewing-date-banner">
-                <span><i class="fas fa-calendar-alt"></i> <span translate="dashboard.viewing_status">Viewing status for:</span></span>
-                <strong>${viewDate.getFullYear()}-${String(viewDate.getMonth()+1).padStart(2,'0')}-${String(viewDate.getDate()).padStart(2,'0')}</strong>
-            </div>
-
-            <!-- Summary metrics -->
-            <div class="summary-cards">
-                <div class="metric-card success-card">
-                    <div class="metric-header">
-                        <span translate="item.budgeted">Budgeted</span>
-                        <i class="fas fa-money-bill-wave"></i>
-                    </div>
-                    <div class="metric-value">${formatCurrency(aggBudgeted)}</div>
-                    <div class="metric-label" translate="nav.dashboard">Dashboard</div>
-                </div>
-
-                <div class="metric-card">
-                    <div class="metric-header">
-                        <span translate="item.spent">Spent</span>
-                        <i class="fas fa-shopping-cart"></i>
-                    </div>
-                    <div class="metric-value">${formatCurrency(aggSpent)}</div>
-                    <div class="metric-label">${lang.get('dashboard.spent_vs_budget', { spent: '', budget: '' }).replace(/^[^\d]*/, '')}</div>
-                </div>
-
-                <div class="metric-card">
-                    <div class="metric-header">
-                        <span translate="dashboard.remaining">Remaining</span>
-                        <i class="fas fa-wallet"></i>
-                    </div>
-                    <div class="metric-value" style="color: ${aggRemaining < 0 ? 'var(--danger-color)' : 'var(--text-color)'}">${formatCurrency(aggRemaining)}</div>
-                    <div class="metric-label" translate="dashboard.remaining">Remaining</div>
-                </div>
-
-                <div class="metric-card ${aggExhaustedCount > 0 ? 'alert-card' : ''}">
-                    <div class="metric-header">
-                        <span translate="dashboard.exhausted_early">Exhausted</span>
-                        <i class="fas fa-exclamation-triangle"></i>
-                    </div>
-                    <div class="metric-value" style="color: ${aggExhaustedCount > 0 ? 'var(--danger-color)' : 'var(--text-color)'}">${aggExhaustedCount}</div>
-                    <div class="metric-label" translate="dashboard.exhausted_early">Exhausted Early</div>
-                </div>
-            </div>
-    `;
-
-    // Warning Banner if any items ran out early
-    if (allExhaustedItems.length > 0) {
-        html += `
-            <div class="warning-banner">
-                <i class="fas fa-exclamation-triangle"></i>
-                <div>
-                    <div class="warning-banner-title">${lang.get('dashboard.items_exhausted_warning', { count: allExhaustedItems.length })}</div>
-                    <ul class="warning-banner-list" style="list-style-type: none; margin-left: 0;">
-        `;
-        allExhaustedItems.forEach(item => {
-            html += `
-                <li style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;">
-                    <span><strong>${item.itemName}</strong> (${item.budgetName}) - ${lang.get('item.exhausted_date', { date: formatDateString(item.date) })}</span>
-                    <button class="backup-btn" style="padding: 4px 8px; font-size: 11px; width: auto; margin: 0; display: inline-flex;" onclick="openRefillModalFromDashboard('${item.itemId}', '${item.budgetId}')">
-                        <i class="fas fa-redo"></i> <span translate="item.refill_btn">Refill</span>
-                    </button>
-                </li>
-            `;
-        });
-        html += `
-                    </ul>
-                </div>
-            </div>
-        `;
-    }
-
-    // Budgets List
-    html += `
-        <div class="section-title">
-            <span translate="dashboard.active_budgets">Active Budgets</span>
-        </div>
-        <div class="budgets-list-container">
-    `;
-
-    if (monthlyBudgets.length === 0) {
-        html += `
-            <div class="empty-state">
-                <i class="fas fa-folder-open empty-state-icon"></i>
-                <p translate="dashboard.no_budgets">No active budgets for the selected date. Click below to plan one!</p>
-                <button id="dashboard-create-btn" class="primary-btn" style="max-width: 250px;" translate="dashboard.create_btn">Create New Budget</button>
-            </div>
-        `;
-    } else {
-        monthlyBudgets.forEach(b => {
-            const metrics = getBudgetMetrics(b, viewDate);
-            
-            // Format status badge
-            let statusBadgeClass = 'active';
-            let statusTextKey = 'item.active';
-            if (metrics.status === 'ended') {
-                statusBadgeClass = 'danger';
-                statusTextKey = 'selection.close';
-            } else if (metrics.status === 'not_started') {
-                statusBadgeClass = 'warning';
-                statusTextKey = 'item.active';
-            }
-
-            // Duration and progress labels
-            const timeLabel = lang.get('dashboard.days_elapsed', { elapsed: metrics.daysElapsed, total: metrics.totalDays });
-            const spentLabel = lang.get('dashboard.spent_vs_budget', { spent: formatCurrency(metrics.totalSpent), budget: formatCurrency(metrics.totalBudgeted) });
-
-            html += `
-                <div class="budget-card" onclick="viewBudgetDetail('${b.id}')">
-                    <div class="budget-card-header">
-                        <div>
-                            <div class="budget-card-title">${b.name}</div>
-                            <div class="budget-card-dates">${formatDateString(b.startDate)} - ${formatDateString(metrics.endDate.toISOString().split('T')[0])}</div>
-                        </div>
-                        <span class="badge ${statusBadgeClass}">
-                            ${metrics.status === 'active' ? 'Active' : (metrics.status === 'ended' ? 'Ended' : 'Pending')}
-                        </span>
-                    </div>
-
-                    ${isToday ? `
-                    <!-- Time Progress -->
-                    <div class="progress-container">
-                        <div class="progress-label-row">
-                            <span translate="dashboard.progression">Time Progress</span>
-                            <span>${Math.round(metrics.timeProgress)}%</span>
-                        </div>
-                        <div class="progress-track">
-                            <div class="progress-fill primary" style="width: ${metrics.timeProgress}%"></div>
-                        </div>
-                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">${timeLabel}</div>
-                    </div>
-
-                    <!-- Spending Progress -->
-                    <div class="progress-container" style="margin-top: 12px;">
-                        <div class="progress-label-row">
-                            <span translate="dashboard.amount_spent">Spending Progress</span>
-                            <span>${Math.round(metrics.spentProgress)}%</span>
-                        </div>
-                        <div class="progress-track">
-                            <div class="progress-fill ${metrics.spentProgress > 100 ? 'danger' : 'success'}" style="width: ${Math.min(metrics.spentProgress, 100)}%"></div>
-                        </div>
-                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">${spentLabel}</div>
-                    </div>
-                    ` : ''}
-
-                    ${metrics.itemsExhaustedCount > 0 ? `
-                        <div style="font-size: 12px; color: var(--danger-color); font-weight: 700; margin-top: 10px; display: flex; align-items: center; gap: 6px;">
-                            <i class="fas fa-exclamation-circle"></i>
-                            <span>${lang.get('item.exhausted') || 'Exhausted!'} (${metrics.itemsExhaustedCount})</span>
-                        </div>
-                    ` : ''}
-                </div>
-            `;
-        });
-
-        // Floating Action Button
-        html += `
-            <div id="fab-add-budget" class="fab" title="${lang.get('dashboard.create_btn')}">
-                <i class="fas fa-plus"></i>
-            </div>
-        `;
-    }
-
-    html += `
-        </div>
+  return `<div class="budget-card" onclick="showBudgetDetail(${b.id})">
+    <div class="budget-card-header">
+      <div>
+        <div class="budget-card-title">${escHtml(b.name)}</div>
+        <div class="budget-card-dates">${fmtDate(start)} → ${fmtDate(end)}</div>
+      </div>
+      <span class="badge ${daysLeft===0?'danger':daysLeft<7?'warning':'active'}">${daysLeft===0?'Terminé':daysLeft+'j rest.'}</span>
     </div>
-    `;
-
-    mainContent.innerHTML = html;
-
-    // Attach listeners
-    const createBtn = document.getElementById('dashboard-create-btn');
-    if (createBtn) createBtn.onclick = () => openBudgetModal();
-
-    const fab = document.getElementById('fab-add-budget');
-    if (fab) fab.onclick = () => openBudgetModal();
-
-    lang.translatePage();
+    <div class="progress-container">
+      <div class="progress-label-row"><span>Temps</span><span>${timePct.toFixed(0)}%</span></div>
+      <div class="progress-track"><div class="progress-fill primary" style="width:${timePct}%"></div></div>
+    </div>
+    <div class="progress-container">
+      <div class="progress-label-row"><span>Dépenses</span><span>${fmt(totalSpent)} / ${fmt(totalBudgeted)}</span></div>
+      <div class="progress-track"><div class="progress-fill ${spentPct>90?'danger':'success'}" style="width:${spentPct}%"></div></div>
+    </div>
+    ${exhausted>0?`<div style="font-size:12px;color:var(--danger-color);font-weight:700;margin-top:6px"><i class="fas fa-exclamation-circle"></i> ${exhausted} achat(s) épuisé(s)</div>`:''}
+    ${perMember!==null?`<div style="font-size:12px;color:var(--text-muted);margin-top:6px"><i class="fas fa-user"></i> Part/membre: <b>${fmt(perMember)}</b></div>`:''}
+  </div>`;
 }
 
-function renderBudgetDetail() {
-    const mainContent = document.getElementById('main-content');
-    if (!mainContent || !activeBudget) return;
+// ─── Budgets List ───
+function renderBudgets() {
+  const content = $('main-content');
+  const budgets = db.getBudgets();
+  let html = `<div class="budget-detail-view">
+    <div class="section-title"><span>Tous les Budgets</span><span style="font-size:13px;color:var(--text-muted)">${budgets.length}</span></div>`;
+  if (budgets.length === 0) {
+    html += `<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-folder-open"></i></div><div style="font-weight:700">Aucun budget créé</div><div style="font-size:13px">Appuyez + pour commencer</div></div>`;
+  } else {
+    budgets.forEach(b => { html += renderBudgetCard(b); });
+  }
+  html += `</div><button class="fab" onclick="openCreateBudgetModal()"><i class="fas fa-plus"></i></button>`;
+  content.innerHTML = html;
+}
 
-    const metrics = getBudgetMetrics(activeBudget, viewDate);
+// ─── Budget Detail ───
+function renderBudgetDetail(budgetId) {
+  const content = $('main-content');
+  const b = db.getBudget(budgetId);
+  if (!b) { showDashboard(); return; }
+  const start=new Date(b.start_date), end=new Date(b.end_date), now=new Date();
+  const totalDays = Math.max(1, Math.ceil((end-start)/86400000)+1);
+  const elapsed = Math.max(0, Math.ceil((now-start)/86400000));
+  const timePct = Math.min(100,(elapsed/totalDays)*100);
+  const daysLeft = Math.max(0, Math.ceil((end-now)/86400000));
+  const items = db.getItemsByBudget(budgetId);
+  const totalBudgeted = items.reduce((s,i)=>s+i.budgeted_amount, 0);
+  const totalSpent = db.getTotalSpentByBudget(budgetId);
+  const spentPct = totalBudgeted > 0 ? Math.min(100,(totalSpent/totalBudgeted)*100) : 0;
+  const exhaustedItems = items.filter(i=>i.is_finished);
+  const memberCount = db.getMemberCount() || 1;
+  const perMember = totalSpent / memberCount;
+  const DUR = { day:'Jour(s)', week:'Semaine(s)', month:'Mois', year:'Année(s)' };
 
-    // Days indicator text
-    let daysLabel = '';
-    const today = new Date(viewDate);
-    today.setHours(0,0,0,0);
-    const start = new Date(activeBudget.startDate);
-    start.setHours(0,0,0,0);
-    const end = new Date(metrics.endDate);
-    end.setHours(0,0,0,0);
-
-    if (today < start) {
-        const diff = Math.round((start - today) / (1000 * 60 * 60 * 24));
-        daysLabel = lang.get('budget.not_started', { count: diff });
-    } else if (today > end) {
-        const diff = Math.round((today - end) / (1000 * 60 * 60 * 24));
-        daysLabel = lang.get('budget.days_over', { count: diff });
-    } else {
-        const diff = Math.round((end - today) / (1000 * 60 * 60 * 24));
-        daysLabel = lang.get('budget.days_left', { count: diff });
-    }
-
-    let html = `
-        <div class="budget-detail-view">
-            <div class="back-btn-container">
-                <button class="back-btn" onclick="goBackToDashboard()"><i class="fas fa-arrow-left"></i> <span translate="nav.dashboard">Dashboard</span></button>
-            </div>
-
-            <!-- Details Card -->
-            <div class="budget-detail-header-card">
-                <div class="budget-detail-title-row">
-                    <span class="budget-detail-title">${activeBudget.name}</span>
-                    <span class="budget-duration-badge">${activeBudget.durationValue} ${lang.get('budget.duration_' + activeBudget.durationType)}</span>
-                </div>
-                <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px;">
-                    <i class="far fa-calendar-alt"></i> ${formatDateString(activeBudget.startDate)} - ${formatDateString(activeBudget.endDate)}
-                </div>
-
-                <!-- Time progress inside detail -->
-                <div class="progress-container">
-                    <div class="progress-label-row">
-                        <span translate="dashboard.progression">Time Progress</span>
-                        <span>${Math.round(metrics.timeProgress)}%</span>
-                    </div>
-                    <div class="progress-track">
-                        <div class="progress-fill primary" style="width: ${metrics.timeProgress}%"></div>
-                    </div>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between;">
-                        <span>${lang.get('dashboard.days_elapsed', { elapsed: metrics.daysElapsed, total: metrics.totalDays })}</span>
-                        <strong>${daysLabel}</strong>
-                    </div>
-                </div>
-
-                <!-- Stats Grid -->
-                <div class="budget-stats-grid">
-                    <div class="budget-stat-item">
-                        <span class="budget-stat-label" translate="item.budgeted">Budgeted</span>
-                        <span class="budget-stat-val" style="color: var(--primary-color);">${formatCurrency(metrics.totalBudgeted)}</span>
-                    </div>
-                    <div class="budget-stat-item">
-                        <span class="budget-stat-label" translate="item.spent">Spent</span>
-                        <span class="budget-stat-val">${formatCurrency(metrics.totalSpent)}</span>
-                    </div>
-                    <div class="budget-stat-item">
-                        <span class="budget-stat-label" translate="dashboard.remaining">Remaining</span>
-                        <span class="budget-stat-val" style="color: ${metrics.remaining < 0 ? 'var(--danger-color)' : 'var(--text-color)'}">${formatCurrency(metrics.remaining)}</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Food Items -->
-            <div class="section-title">
-                <span translate="budget.items">Food Items</span>
-                <button class="backup-btn" style="padding: 6px 12px; font-size: 12px; width: auto;" onclick="openItemModal()"><i class="fas fa-plus"></i> <span translate="budget.add_item">Add Food</span></button>
-            </div>
-            <div class="food-items-container">
-    `;
-
-    if (!activeBudget.items || activeBudget.items.length === 0) {
-        html += `
-            <div class="empty-state">
-                <i class="fas fa-carrot empty-state-icon"></i>
-                <p translate="budget.no_items">No food items added to this budget yet.</p>
-                <button class="primary-btn" style="max-width: 200px;" onclick="openItemModal()" translate="budget.add_item">Add Food</button>
-            </div>
-        `;
-    } else {
-        activeBudget.items.forEach(item => {
-            // Calculate spent for this item as of active date
-            let itemSpent = 0;
-            item.purchases && item.purchases.forEach(p => {
-                const pDate = new Date(p.date);
-                pDate.setHours(0,0,0,0);
-                if (pDate <= today) {
-                    itemSpent += parseFloat(p.amount) || 0;
-                }
-            });
-
-            const budgeted = parseFloat(item.budgetedAmount) || 0;
-            let percent = 0;
-            if (budgeted > 0) {
-                percent = (itemSpent / budgeted) * 100;
-            }
-
-            // Check if exhausted
-            const isExhaustedNow = item.isFinished && item.finishedDate && (new Date(item.finishedDate).setHours(0,0,0,0) <= today.getTime());
-
-            html += `
-                <div class="food-item-card ${isExhaustedNow ? 'exhausted' : ''}">
-                    <div class="food-item-header">
-                        <div>
-                            <span class="food-item-name">${item.name}</span>
-                            ${isExhaustedNow ? `
-                                <span class="badge danger" style="margin-left: 8px;" translate="item.exhausted">Exhausted Early!</span>
-                            ` : `
-                                <span class="badge active" style="margin-left: 8px;" translate="item.active">Available</span>
-                            `}
-                        </div>
-                        <div class="food-item-actions">
-                            ${isExhaustedNow ? `
-                            <button class="item-action-btn" style="color: var(--accent-color); border-color: var(--accent-color);" title="${lang.get('item.refill_btn')}" onclick="openRefillModal('${item.id}')">
-                                <i class="fas fa-redo"></i>
-                            </button>
-                            ` : ''}
-                            <button class="item-action-btn" title="${lang.get('item.add_purchase')}" onclick="openPurchaseModal('${item.id}')">
-                                <i class="fas fa-plus"></i>
-                            </button>
-                            <button class="item-action-btn" title="${lang.get('item.purchases_title')}" onclick="viewPurchasesList('${item.id}')">
-                                <i class="fas fa-receipt"></i>
-                            </button>
-                            <button class="item-action-btn" style="${isExhaustedNow ? 'color: var(--danger-color);' : ''}" title="${lang.get('item.mark_exhausted')}" onclick="toggleItemFinished('${item.id}')">
-                                <i class="fas fa-check-circle"></i>
-                            </button>
-                            <button class="item-action-btn delete-btn" title="${lang.get('item.delete')}" onclick="deleteFoodItem('${item.id}')">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Progress bar -->
-                    <div class="progress-container" style="margin-bottom: 0;">
-                        <div class="progress-label-row" style="font-size: 11px;">
-                            <span>${formatCurrency(itemSpent)} / ${formatCurrency(budgeted)}</span>
-                            <span>${Math.round(percent)}%</span>
-                        </div>
-                        <div class="progress-track" style="height: 6px;">
-                            <div class="progress-fill ${percent > 100 ? 'danger' : 'success'}" style="width: ${Math.min(percent, 100)}%"></div>
-                        </div>
-                    </div>
-                    
-                    ${isExhaustedNow ? `
-                        <div class="exhaust-date-label">${lang.get('item.exhausted_date', { date: formatDateString(item.finishedDate) })}</div>
-                    ` : ''}
-                </div>
-            `;
-        });
-    }
-
-    // Danger Zone / Delete Budget
-    html += `
-            </div>
-            
-            <button class="danger-btn-alt" onclick="deleteActiveBudget()"><i class="fas fa-trash"></i> <span translate="budget.delete">Delete Budget</span></button>
+  let html = `<div class="budget-detail-view">
+    <div class="back-btn-container">
+      <button class="back-btn" onclick="goBack()"><i class="fas fa-arrow-left"></i> Retour</button>
+    </div>
+    <div class="budget-detail-header-card">
+      <div class="budget-detail-title-row">
+        <span class="budget-detail-title">${escHtml(b.name)}</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="budget-duration-badge">${b.duration_value} ${DUR[b.duration_type]||b.duration_type}</span>
+          <button class="item-action-btn" onclick="openEditBudgetModal(${b.id})" title="Modifier"><i class="fas fa-pencil-alt"></i></button>
+          <button class="item-action-btn delete-btn" onclick="confirmDeleteBudget(${b.id})" title="Supprimer"><i class="fas fa-trash-alt"></i></button>
         </div>
-    `;
+      </div>
+      <div class="progress-container">
+        <div class="progress-label-row"><span>Temps</span><span>${timePct.toFixed(0)}% · ${daysLeft===0?'Terminé':daysLeft+' j restants'}</span></div>
+        <div class="progress-track"><div class="progress-fill primary" style="width:${timePct}%"></div></div>
+      </div>
+      <div class="progress-container">
+        <div class="progress-label-row"><span>Dépenses</span><span>${spentPct.toFixed(0)}%</span></div>
+        <div class="progress-track"><div class="progress-fill ${spentPct>90?'danger':'success'}" style="width:${spentPct}%"></div></div>
+      </div>
+      <div class="budget-stats-grid">
+        <div class="budget-stat-item"><span class="budget-stat-label">Budgétisé</span><span class="budget-stat-val">${fmt(totalBudgeted)}</span></div>
+        <div class="budget-stat-item"><span class="budget-stat-label">Dépensé</span><span class="budget-stat-val" style="color:var(--primary-color)">${fmt(totalSpent)}</span></div>
+        <div class="budget-stat-item"><span class="budget-stat-label">${totalSpent>totalBudgeted?'Dépassé':'Restant'}</span><span class="budget-stat-val" style="color:${totalSpent>totalBudgeted?'var(--danger-color)':'var(--success-color)'}">${fmt(Math.abs(totalBudgeted-totalSpent))}</span></div>
+      </div>
+    </div>`;
 
-    mainContent.innerHTML = html;
-    lang.translatePage();
+  if (exhaustedItems.length > 0) {
+    html += `<div class="warning-banner"><i class="fas fa-exclamation-triangle"></i><div>
+      <div class="warning-banner-title">${exhaustedItems.length} achat(s) épuisé(s) tôt!</div>
+      <div style="font-size:12px">${exhaustedItems.map(i=>escHtml(i.name)).join(', ')}</div>
+    </div></div>`;
+  }
+
+  // Contributions membres
+  html += renderMembersContributions(budgetId, totalSpent, memberCount, perMember);
+
+  // articles
+  html += `<div class="section-title">
+    <span>articles (${items.length})</span>
+    <button class="backup-btn" style="width:auto;padding:6px 14px;font-size:13px;border-radius:20px" onclick="openCreateItemModal(${b.id})">
+      <i class="fas fa-plus"></i> Ajouter
+    </button>
+  </div>`;
+
+  if (items.length === 0) {
+    html += `<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-empty-alt"></i></div><div style="font-weight:700">Aucun achat ajouté</div></div>`;
+  } else {
+    html += `<div class="food-items-container">`;
+    items.forEach(item => { html += renderItemCard(item, budgetId); });
+    html += `</div>`;
+  }
+
+  // Récapitulatif
+  html += `<div class="budget-members-section" style="margin-top:20px">
+    <h3><i class="fas fa-calculator"></i> Récapitulatif Budget</h3>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-color)">
+      <span style="font-weight:600">Total Budgétisé</span><span>${fmt(totalBudgeted)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-color)">
+      <span style="font-weight:600">Total Dépensé</span><span style="color:var(--primary-color);font-weight:700">${fmt(totalSpent)}</span>
+    </div>
+    ${memberCount>1?`<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:14px">
+      <span style="font-weight:600">Part / membre (${memberCount})</span>
+      <span style="color:var(--accent-color);font-weight:700">${fmt(perMember)}</span>
+    </div>`:''}
+  </div></div>`;
+
+  html += `<button class="fab" onclick="openCreateItemModal(${b.id})"><i class="fas fa-plus"></i></button>`;
+  content.innerHTML = html;
 }
 
-function goBackToDashboard() {
-    currentView = 'dashboard';
-    activeBudget = null;
-    renderUI();
+function renderMembersContributions(budgetId, totalSpent, memberCount, perMember) {
+  db.initPaymentStatusesForBudget(budgetId);
+  const statuses = db.getPaymentStatuses(budgetId);
+  const isMgr = isCurrentUserManager();
+  if (statuses.length === 0) return '';
+
+  let html = `<div class="budget-members-section">
+    <h3><i class="fas fa-users"></i> Contributions des Membres</h3>`;
+  statuses.forEach(s => {
+    const name = `${escHtml(s.first_name||'')} ${escHtml(s.last_name||'')}`.trim() || 'Membre';
+    const paid = s.is_paid == 1;
+    html += `<div class="member-payment-row">
+      <div class="member-payment-name">${name}</div>
+      <div class="member-payment-amount">${fmt(perMember)}</div>
+      ${isMgr
+        ? `<button class="payment-status-btn ${paid?'paid':'unpaid'} can-toggle" onclick="togglePayment(${budgetId},${s.member_id},${paid?0:1})">${paid?'✓ Payé':'✗ Non payé'}</button>`
+        : `<span class="payment-status-btn ${paid?'paid':'unpaid'}">${paid?'✓ Payé':'✗ Non payé'}</span>`
+      }
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
 }
 
-function viewBudgetDetail(budgetId) {
-    const b = budgets.find(x => x.id === budgetId);
-    if (b) {
-        activeBudget = b;
-        currentView = 'budget_detail';
-        renderUI();
+function togglePayment(budgetId, memberId, newState) {
+  db.setPaymentStatus(budgetId, memberId, newState);
+  renderBudgetDetail(budgetId);
+}
+
+function isCurrentUserManager() {
+  const profile = db.getProfile();
+  if (!profile.user_id) return true;
+  const member = db.getMemberByUserId(profile.user_id);
+  if (!member) return true;
+  return member.role === 'manager';
+}
+
+// ─── Item Card ───
+function renderItemCard(item, budgetId) {
+  const spent = db.getTotalSpentByItem(item.id);
+  const pct = item.budgeted_amount > 0 ? Math.min(100,(spent/item.budgeted_amount)*100) : 0;
+  return `<div class="food-item-card ${item.is_finished?'exhausted':''}">
+    <div class="food-item-header">
+      <span class="food-item-name">${escHtml(item.name)}</span>
+      <div class="food-item-actions">
+        <button class="item-action-btn" title="Ajouter achat" onclick="openCreatePurchaseModal(${item.id})"><i class="fas fa-plus"></i></button>
+        <button class="item-action-btn" title="Liste articles" onclick="openPurchasesListModal(${item.id})"><i class="fas fa-list"></i></button>
+        <button class="item-action-btn" title="Réappro" onclick="openRefillModal(${item.id})"><i class="fas fa-fill-drip"></i></button>
+        <button class="item-action-btn delete-btn" title="Supprimer" onclick="confirmDeleteItem(${item.id})"><i class="fas fa-trash-alt"></i></button>
+      </div>
+    </div>
+    <div class="progress-container">
+      <div class="progress-label-row">
+        <span>Dépensé: ${fmt(spent)}</span><span>Budget: ${fmt(item.budgeted_amount)}</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill ${pct>90?'danger':'success'}" style="width:${pct}%"></div></div>
+    </div>
+    ${item.is_finished
+      ? `<div class="exhaust-date-label"><i class="fas fa-ban"></i> Épuisé le: ${item.finished_date||''}</div>
+         <button class="item-action-btn" style="font-size:12px;width:auto;padding:4px 10px;height:auto;margin-top:6px" onclick="db.unmarkItemFinished(${item.id});renderBudgetDetail(${budgetId})"><i class="fas fa-undo"></i> Rétablir</button>`
+      : `<button class="item-action-btn" style="font-size:12px;width:auto;padding:4px 10px;height:auto;margin-top:6px" onclick="markItemExhausted(${item.id},${budgetId})"><i class="fas fa-ban"></i> Marquer épuisé</button>`
     }
+  </div>`;
 }
 
-// Dialog Actions
-function openBudgetModal() {
-    const modal = document.getElementById('budget-modal');
-    if (!modal) return;
-
-    // Reset inputs
-    document.getElementById('budget-name').value = '';
-    // Default to selected date
-    const dateInput = document.getElementById('budget-start-date');
-    const viewDateStr = viewDate.toISOString().split('T')[0];
-    dateInput.value = viewDateStr;
-
-    modal.classList.add('show');
+function markItemExhausted(itemId, budgetId) {
+  db.markItemFinished(itemId, today());
+  db.addSuggestion(db.getItem(itemId)?.name || '');
+  renderBudgetDetail(budgetId);
 }
 
-function openItemModal() {
-    const modal = document.getElementById('item-modal');
-    if (!modal) return;
-    document.getElementById('item-name').value = '';
-    document.getElementById('item-budgeted').value = '';
-    
-    // Load and render suggestions from previous foods
-    const sugContainer = document.getElementById('item-suggestions');
-    if (sugContainer) {
-        sugContainer.innerHTML = '';
-        const suggestions = JSON.parse(localStorage.getItem('menap_food_suggestions') || '[]');
-        suggestions.slice(0, 8).forEach(s => {
-            const span = document.createElement('span');
-            span.className = 'suggestion-tag';
-            span.innerText = s;
-            span.onclick = () => {
-                document.getElementById('item-name').value = s;
-                document.getElementById('item-budgeted').focus();
-            };
-            sugContainer.appendChild(span);
-        });
-    }
-
-    modal.classList.add('show');
+// ─── Budget Modals ───
+function openCreateBudgetModal() {
+  state.editBudgetId = null;
+  $('budget-modal-title').textContent = 'Créer un Budget';
+  $('save-budget-btn').textContent = 'Créer le Budget';
+  $('budget-name').value = '';
+  $('budget-start-date').value = today();
+  $('budget-duration-type').value = 'month';
+  $('budget-duration-val').value = '1';
+  openModal('budget-modal');
 }
 
-function openPurchaseModal(itemId) {
-    selectedFoodItemForPurchase = itemId;
-    const modal = document.getElementById('purchase-modal');
-    if (!modal) return;
-    
-    // Reset inputs
-    const viewDateStr = viewDate.toISOString().split('T')[0];
-    document.getElementById('purchase-date').value = viewDateStr;
-    document.getElementById('purchase-amount').value = '';
-    document.getElementById('purchase-qty').value = '';
-    document.getElementById('purchase-note').value = '';
-    
-    modal.classList.add('show');
+function openEditBudgetModal(id) {
+  const b = db.getBudget(id);
+  if (!b) return;
+  state.editBudgetId = id;
+  $('budget-modal-title').textContent = 'Modifier le Budget';
+  $('save-budget-btn').textContent = 'Mettre à jour';
+  $('budget-name').value = b.name;
+  $('budget-start-date').value = b.start_date;
+  $('budget-duration-type').value = b.duration_type;
+  $('budget-duration-val').value = b.duration_value;
+  openModal('budget-modal');
 }
 
-// Data Manipulations
-function createOrUpdateBudget() {
-    const nameInput = document.getElementById('budget-name');
-    const startInput = document.getElementById('budget-start-date');
-    const durationType = document.getElementById('budget-duration-type').value;
-    const durationVal = parseInt(document.getElementById('budget-duration-val').value) || 1;
-
-    const name = nameInput.value.trim();
-    const startDate = startInput.value;
-
-    if (!name || !startDate) {
-        alert(appSettings.lang === 'fr' ? 'Veuillez remplir tous les champs.' : 'Tafadhali jaza nafasi zote.');
-        return;
-    }
-
-    // Calculate end date
-    const end = getBudgetEndDate(startDate, durationType, durationVal);
-    const endDate = end.toISOString().split('T')[0];
-
-    const newBudget = {
-        id: 'b-' + Date.now(),
-        name,
-        startDate,
-        endDate,
-        durationType,
-        durationValue: durationVal,
-        items: []
-    };
-
-    budgets.push(newBudget);
-    saveBudgets();
-    playSound('success');
-    
-    // Automatically update active view date to new budget start date
-    // so it shows up in real time without refreshing
-    viewDate = new Date(startDate);
-    updateHeaderDateLabels();
-    
-    // Close modal
-    document.getElementById('budget-modal').classList.remove('show');
-    
-    // Reload dashboard
-    renderUI();
+function saveBudget() {
+  const name = $('budget-name').value.trim();
+  const startDate = $('budget-start-date').value;
+  const durationType = $('budget-duration-type').value;
+  const durationValue = parseInt($('budget-duration-val').value)||1;
+  if (!name) { showToast('Nom du budget requis','error'); return; }
+  if (!startDate) { showToast('Date de début requise','error'); return; }
+  const endDate = calcEndDate(startDate, durationType, durationValue);
+  const data = { name, start_date:startDate, end_date:endDate, duration_type:durationType, duration_value:durationValue };
+  if (state.editBudgetId) {
+    db.updateBudget(state.editBudgetId, data);
+    showToast('Budget mis à jour!','success');
+    closeModal('budget-modal');
+    renderBudgetDetail(state.editBudgetId);
+  } else {
+    const newId = db.createBudget(data);
+    db.initPaymentStatusesForBudget(newId);
+    showToast('Budget créé!','success');
+    closeModal('budget-modal');
+    // Retour au dashboard et affichage immédiat du nouveau budget
+    showDashboard();
+  }
 }
 
-function addFoodItem() {
-    if (!activeBudget) return;
-    const nameInput = document.getElementById('item-name');
-    const budgetedInput = document.getElementById('item-budgeted');
-
-    const name = nameInput.value.trim();
-    const budgetedAmount = parseFloat(budgetedInput.value) || 0;
-
-    if (!name || budgetedAmount <= 0) {
-        alert(appSettings.lang === 'fr' ? 'Veuillez saisir un nom et un montant valides.' : 'Jaza izina n\'amafaranga yabyo.');
-        return;
-    }
-
-    // Store unique food name for suggestions
-    let suggestions = JSON.parse(localStorage.getItem('menap_food_suggestions') || '[]');
-    if (!suggestions.includes(name)) {
-        suggestions.push(name);
-        localStorage.setItem('menap_food_suggestions', JSON.stringify(suggestions));
-    }
-
-    const newItem = {
-        id: 'i-' + Date.now(),
-        name,
-        budgetedAmount,
-        isFinished: false,
-        finishedDate: null,
-        purchases: []
-    };
-
-    // Find budget in array and push
-    const idx = budgets.findIndex(x => x.id === activeBudget.id);
-    if (idx !== -1) {
-        budgets[idx].items.push(newItem);
-        activeBudget = budgets[idx]; // Update reference
-        saveBudgets();
-        playSound('success');
-    }
-
-    document.getElementById('item-modal').classList.remove('show');
-    renderUI();
+function confirmDeleteBudget(id) {
+  const b = db.getBudget(id);
+  if (!b) return;
+  if (confirm(`Supprimer "${b.name}" et tout son contenu?`)) {
+    db.deleteBudget(id);
+    showToast('Budget supprimé','info');
+    showDashboard();
+  }
 }
 
-function deleteFoodItem(itemId) {
-    if (!activeBudget) return;
-    
-    const confirmMsg = appSettings.lang === 'fr' ? 'Supprimer cet aliment ?' : 'Gusiba iki kiribwa ?';
-    if (!confirm(confirmMsg)) return;
-    playSound('click');
-
-    const bIdx = budgets.findIndex(x => x.id === activeBudget.id);
-    if (bIdx !== -1) {
-        budgets[bIdx].items = budgets[bIdx].items.filter(item => item.id !== itemId);
-        activeBudget = budgets[bIdx];
-        saveBudgets();
-        renderUI();
-    }
+// ─── Item Modals ───
+function openCreateItemModal(budgetId) {
+  state.currentBudgetId = budgetId;
+  state.currentItemId = null;
+  $('item-name').value = '';
+  $('item-budgeted').value = '';
+  $('item-advisor-tip').classList.add('hidden');
+  renderItemSuggestions('');
+  openModal('item-modal');
 }
 
-function toggleItemFinished(itemId) {
-    if (!activeBudget) return;
-
-    const bIdx = budgets.findIndex(x => x.id === activeBudget.id);
-    if (bIdx !== -1) {
-        const itemIdx = budgets[bIdx].items.findIndex(item => item.id === itemId);
-        if (itemIdx !== -1) {
-            const item = budgets[bIdx].items[itemIdx];
-            
-            // Toggle
-            if (item.isFinished) {
-                item.isFinished = false;
-                item.finishedDate = null;
-                playSound('success');
-            } else {
-                item.isFinished = true;
-                item.finishedDate = viewDate.toISOString().split('T')[0];
-                playSound('warning');
-            }
-
-            activeBudget = budgets[bIdx];
-            saveBudgets();
-            renderUI();
-        }
-    }
+function renderItemSuggestions(filter) {
+  const suggestions = db.getSuggestions();
+  const container = $('item-suggestions');
+  const filtered = filter ? suggestions.filter(s=>s.toLowerCase().includes(filter.toLowerCase())).slice(0,8) : suggestions.slice(0,12);
+  container.innerHTML = filtered.map(s => `<span class="suggestion-tag" onclick="selectItemSuggestion('${escAttr(s)}')">${escHtml(s)}</span>`).join('');
 }
 
-function addPurchase() {
-    if (!activeBudget || !selectedFoodItemForPurchase) return;
-    
-    const date = document.getElementById('purchase-date').value;
-    const amount = parseFloat(document.getElementById('purchase-amount').value) || 0;
-    const qty = document.getElementById('purchase-qty').value.trim();
-    const note = document.getElementById('purchase-note').value.trim();
-
-    if (!date || amount <= 0) {
-        alert(appSettings.lang === 'fr' ? 'Montant invalide.' : 'Ingano y\'amafaranga ntiyemewe.');
-        return;
-    }
-
-    const newPurchase = {
-        id: 'p-' + Date.now(),
-        date,
-        amount,
-        qty,
-        note
-    };
-
-    const bIdx = budgets.findIndex(x => x.id === activeBudget.id);
-    if (bIdx !== -1) {
-        const itemIdx = budgets[bIdx].items.findIndex(item => item.id === selectedFoodItemForPurchase);
-        if (itemIdx !== -1) {
-            budgets[bIdx].items[itemIdx].purchases.push(newPurchase);
-            activeBudget = budgets[bIdx];
-            saveBudgets();
-            playSound('success');
-        }
-    }
-
-    document.getElementById('purchase-modal').classList.remove('show');
-    selectedFoodItemForPurchase = null;
-    renderUI();
+function selectItemSuggestion(name) {
+  $('item-name').value = name;
+  checkItemAdvisor(name);
 }
 
-// Ravitaillement / Refill Stock reactivation logic
+function checkItemAdvisor(name) {
+  if (!name) return;
+  const prev = db.getPreviousItemData(name).filter(p=>p.is_finished);
+  if (prev.length > 0) {
+    const suggested = Math.ceil((prev[0].spent||0) * 1.1);
+    const tip = $('item-advisor-tip');
+    tip.innerHTML = `<i class="fas fa-lightbulb"></i> Conseil: "${escHtml(name)}" s'est épuisé lors du dernier budget. Suggestion: ${fmt(suggested)}`;
+    tip.classList.remove('hidden');
+    if (!$('item-budgeted').value) $('item-budgeted').value = suggested;
+  } else {
+    $('item-advisor-tip').classList.add('hidden');
+  }
+}
+
+function saveItem() {
+  const name = $('item-name').value.trim();
+  const budgeted = parseFloat($('item-budgeted').value)||0;
+  if (!name) { showToast("Nom de l'achat requis",'error'); return; }
+  db.createItem({ budget_id:state.currentBudgetId, name, budgeted_amount:budgeted });
+  db.addSuggestion(name);
+  showToast('Achat ajouté!','success');
+  closeModal('item-modal');
+  renderBudgetDetail(state.currentBudgetId);
+}
+
+function confirmDeleteItem(id) {
+  const item = db.getItem(id);
+  if (!item) return;
+  if (confirm(`Supprimer "${item.name}" et tous ses articles?`)) {
+    const budgetId = item.budget_id;
+    db.deleteItem(id);
+    showToast('Achat supprimé','info');
+    renderBudgetDetail(budgetId);
+  }
+}
+
+// ─── Purchase Modals ───
+function openCreatePurchaseModal(itemId) {
+  state.currentItemId = itemId;
+  $('purchase-date').value = today();
+  $('purchase-amount').value = '';
+  $('purchase-qty').value = '';
+  $('purchase-note').value = '';
+  openModal('purchase-modal');
+}
+
+function savePurchase() {
+  const date = $('purchase-date').value;
+  const amount = parseFloat($('purchase-amount').value)||0;
+  const qty = $('purchase-qty').value.trim();
+  const note = $('purchase-note').value.trim();
+  if (!date) { showToast('Date requise','error'); return; }
+  if (amount <= 0) { showToast('Montant invalide','error'); return; }
+  db.createPurchase({ item_id:state.currentItemId, date, amount, qty, note });
+  showToast('Achat enregistré!','success');
+  closeModal('purchase-modal');
+  if (state.currentBudgetId) renderBudgetDetail(state.currentBudgetId);
+}
+
+function openPurchasesListModal(itemId) {
+  state.currentItemId = itemId;
+  const purchases = db.getPurchasesByItem(itemId);
+  const list = $('purchases-modal-list');
+  if (purchases.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-receipt"></i></div><div>Aucun achat enregistré</div></div>';
+  } else {
+    list.innerHTML = purchases.map(p => `
+      <div class="purchase-row">
+        <div class="purchase-left">
+          <span class="purchase-ref">${p.date}${p.qty?' · '+escHtml(p.qty):''}</span>
+          ${p.note?`<span class="purchase-sub">${escHtml(p.note)}</span>`:''}
+        </div>
+        <div class="purchase-right">
+          <span class="purchase-amt">${fmt(p.amount)}</span>
+          <button class="purchase-del-btn" onclick="deletePurchaseFromList(${p.id},${itemId})"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>`).join('');
+  }
+  openModal('purchases-list-modal');
+}
+
+function deletePurchaseFromList(purchaseId, itemId) {
+  if (confirm('Supprimer cet achat?')) {
+    db.deletePurchase(purchaseId);
+    openPurchasesListModal(itemId);
+    if (state.currentBudgetId) renderBudgetDetail(state.currentBudgetId);
+  }
+}
+
+// ─── Refill Modal ───
 function openRefillModal(itemId) {
-    playSound('click');
-    selectedFoodItemForRefill = itemId;
-    const modal = document.getElementById('refill-modal');
-    if (!modal) return;
-    document.getElementById('refill-amount').value = '';
-    document.getElementById('refill-qty').value = '';
-    document.getElementById('refill-note').value = 'Ravitaillement';
-    modal.classList.add('show');
-    
-    setTimeout(() => {
-        // Track the refill input focused
-        window.activeCalculatorInput = 'refill-amount';
-    }, 100);
+  state.currentItemId = itemId;
+  $('refill-amount').value = '';
+  $('refill-qty').value = '';
+  $('refill-note').value = 'Réappro.';
+  openModal('refill-modal');
 }
 
 function saveRefill() {
-    if (!activeBudget || !selectedFoodItemForRefill) return;
-    
-    const amount = parseFloat(document.getElementById('refill-amount').value) || 0;
-    const qty = document.getElementById('refill-qty').value.trim();
-    const note = document.getElementById('refill-note').value.trim();
-
-    if (amount <= 0) {
-        alert(appSettings.lang === 'fr' ? 'Montant invalide.' : 'Ingano y\'amafaranga ntiyemewe.');
-        return;
-    }
-
-    const bIdx = budgets.findIndex(x => x.id === activeBudget.id);
-    if (bIdx !== -1) {
-        const itemIdx = budgets[bIdx].items.findIndex(item => item.id === selectedFoodItemForRefill);
-        if (itemIdx !== -1) {
-            const item = budgets[bIdx].items[itemIdx];
-            
-            // Record refill added amount
-            item.refills = item.refills || [];
-            item.refills.push(amount);
-            item.budgetedAmount += amount;
-            
-            // Clear exhausted status
-            item.isFinished = false;
-            item.finishedDate = null;
-            
-            // Record a purchase for this ravitaillement
-            const newPurchase = {
-                id: 'p-' + Date.now(),
-                date: viewDate.toISOString().split('T')[0],
-                amount,
-                qty,
-                note: note || 'Ravitaillement'
-            };
-            item.purchases.push(newPurchase);
-            
-            activeBudget = budgets[bIdx];
-            saveBudgets();
-            playSound('success');
-        }
-    }
-
-    document.getElementById('refill-modal').classList.remove('show');
-    selectedFoodItemForRefill = null;
-    renderUI();
+  const amount = parseFloat($('refill-amount').value)||0;
+  const qty = $('refill-qty').value.trim();
+  const note = $('refill-note').value.trim();
+  if (amount <= 0) { showToast('Montant invalide','error'); return; }
+  db.createPurchase({ item_id:state.currentItemId, date:today(), amount, qty, note:note||'Réappro.' });
+  const item = db.getItem(state.currentItemId);
+  if (item && item.is_finished) db.unmarkItemFinished(state.currentItemId);
+  showToast('Stock achaté!','success');
+  closeModal('refill-modal');
+  if (state.currentBudgetId) renderBudgetDetail(state.currentBudgetId);
 }
 
-function openRefillModalFromDashboard(itemId, budgetId) {
-    const b = budgets.find(x => x.id === budgetId);
-    if (b) {
-        activeBudget = b;
-        openRefillModal(itemId);
-    }
-}
-window.openRefillModalFromDashboard = openRefillModalFromDashboard;
+// ─── Calculatrice ───
+let calcExpression = '0', calcPreviewVal = '0';
 
-// Budget Advisor: Suggests quantity based on past early exhaustion + refill amounts
-function showBudgetAdvice(nameText) {
-    const tipDiv = document.getElementById('item-advisor-tip');
-    if (!tipDiv || !activeBudget) return;
-
-    const q = nameText.trim().toLowerCase();
-    if (q.length < 2) {
-        tipDiv.classList.add('hidden');
-        return;
-    }
-
-    let foundAdvice = null;
-
-    // Filter past budgets of same duration (exclude active one)
-    const matchingBudgets = budgets.filter(b => 
-        b.id !== activeBudget.id && 
-        b.durationType === activeBudget.durationType && 
-        b.durationValue === activeBudget.durationValue
-    );
-
-    for (const b of matchingBudgets) {
-        const item = b.items && b.items.find(i => i.name.toLowerCase() === q);
-        if (item) {
-            const refillsSum = item.refills ? item.refills.reduce((a, b) => a + b, 0) : 0;
-            const end = getBudgetEndDate(b.startDate, b.durationType, b.durationValue);
-            const isFinishedEarly = item.isFinished && item.finishedDate && (new Date(item.finishedDate) < end);
-            
-            if (isFinishedEarly || refillsSum > 0) {
-                const original = item.budgetedAmount - refillsSum;
-                const suggested = item.budgetedAmount;
-                foundAdvice = {
-                    name: item.name,
-                    original,
-                    refills: refillsSum,
-                    suggested
-                };
-                break; // Get most recent matching past advice
-            }
-        }
-    }
-
-    if (foundAdvice) {
-        tipDiv.classList.remove('hidden');
-        
-        const template = lang.get('item.advice_desc') || "Tip: '{name}' ran out early in your last budget. We suggest budgeting {suggested} (original {original} + refill {refills}) for this interval.";
-        
-        tipDiv.innerHTML = `
-            <i class="fas fa-lightbulb" style="color: var(--accent-color); font-size: 16px; margin-top: 2px;"></i>
-            <div>
-                <div style="font-weight: 700; margin-bottom: 2px;">${lang.get('item.advice_title') || 'Budget Advice'}</div>
-                <div>${template
-                    .replace('{name}', foundAdvice.name)
-                    .replace('{suggested}', formatCurrency(foundAdvice.suggested))
-                    .replace('{original}', formatCurrency(foundAdvice.original))
-                    .replace('{refills}', formatCurrency(foundAdvice.refills))}</div>
-            </div>
-        `;
-    } else {
-        tipDiv.classList.add('hidden');
-    }
-}
-
-function deleteActiveBudget() {
-    if (!activeBudget) return;
-    
-    const confirmMsg = lang.get('budget.delete_confirm') || 'Are you sure you want to delete this budget?';
-    if (!confirm(confirmMsg)) return;
-
-    budgets = budgets.filter(x => x.id !== activeBudget.id);
-    saveBudgets();
-    goBackToDashboard();
-}
-
-function viewPurchasesList(itemId) {
-    selectedFoodItemForPurchasesList = itemId;
-    const modal = document.getElementById('purchases-list-modal');
-    const container = document.getElementById('purchases-modal-list');
-    
-    if (!modal || !container || !activeBudget) return;
-    
-    const item = activeBudget.items.find(x => x.id === itemId);
-    if (!item) return;
-
-    container.innerHTML = '';
-    
-    if (!item.purchases || item.purchases.length === 0) {
-        container.innerHTML = `<div class="empty-state"><i class="fas fa-receipt empty-state-icon"></i><p translate="item.no_purchases">No purchases recorded.</p></div>`;
-    } else {
-        // Sort purchases by date descending
-        const sorted = [...item.purchases].sort((a,b) => new Date(b.date) - new Date(a.date));
-        
-        sorted.forEach(p => {
-            const div = document.createElement('div');
-            div.className = 'purchase-row';
-            div.innerHTML = `
-                <div class="purchase-left">
-                    <span class="purchase-ref">${formatDateString(p.date)}</span>
-                    <span class="purchase-sub">${p.qty || ''} ${p.note ? '• ' + p.note : ''}</span>
-                </div>
-                <div class="purchase-right">
-                    <span class="purchase-amt">${formatCurrency(p.amount)}</span>
-                    <button class="purchase-del-btn" title="Delete" onclick="deletePurchase('${p.id}')">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            `;
-            container.appendChild(div);
-        });
-    }
-
-    modal.classList.add('show');
-    lang.translatePage();
-}
-
-// Global functions for inline actions (defined in window scope for easy HTML onclick)
-window.deletePurchase = function(purchaseId) {
-    if (!activeBudget || !selectedFoodItemForPurchasesList) return;
-
-    const confirmMsg = lang.get('purchase.delete_confirm') || 'Delete this purchase?';
-    if (!confirm(confirmMsg)) return;
-
-    const bIdx = budgets.findIndex(x => x.id === activeBudget.id);
-    if (bIdx !== -1) {
-        const itemIdx = budgets[bIdx].items.findIndex(item => item.id === selectedFoodItemForPurchasesList);
-        if (itemIdx !== -1) {
-            budgets[bIdx].items[itemIdx].purchases = budgets[bIdx].items[itemIdx].purchases.filter(p => p.id !== purchaseId);
-            activeBudget = budgets[bIdx];
-            saveBudgets();
-            
-            // Refresh list modal
-            viewPurchasesList(selectedFoodItemForPurchasesList);
-            // Refresh underlying detail view
-            renderUI();
-        }
-    }
-};
-
-window.toggleItemFinished = toggleItemFinished;
-window.deleteFoodItem = deleteFoodItem;
-window.openPurchaseModal = openPurchaseModal;
-window.viewPurchasesList = viewPurchasesList;
-window.viewBudgetDetail = viewBudgetDetail;
-window.goBackToDashboard = goBackToDashboard;
-window.openItemModal = openItemModal;
-window.deleteActiveBudget = deleteActiveBudget;
-
-// Selection Modal logic
-function openSelectionModal(tabName) {
-    const modal = document.getElementById('selection-modal');
-    if (!modal) return;
-    
-    activeSelectionTab = tabName;
-    buildSelectionGrids();
-    showSelectionTab(tabName);
-    
-    modal.classList.add('show');
-}
-
-function showSelectionTab(tabName) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelector(`[data-tab="${tabName}"]`)?.classList.add('active');
-    
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active-content'));
-    // Map tabName to container ID
-    // tabName is 'years', 'months', 'days' -> ID is 'year-grid-container' etc.
-    let containerId = 'year-grid-container';
-    if (tabName === 'months') containerId = 'month-grid-container';
-    if (tabName === 'days') containerId = 'day-grid-container';
-    
-    document.getElementById(containerId)?.classList.add('active-content');
-}
-
-function buildSelectionGrids() {
-    buildYearGrid();
-    buildMonthGrid();
-    buildDayGrid();
-}
-
-function buildYearGrid() {
-    const grid = document.getElementById('year-grid');
-    if (!grid) return;
-    grid.innerHTML = '';
-
-    // Extract unique years from budgets' startDate
-    const years = [];
-    budgets.forEach(b => {
-        const start = new Date(b.startDate);
-        if (!isNaN(start.getTime())) {
-            const y = start.getFullYear();
-            if (!years.includes(y)) years.push(y);
-        }
-    });
-
-    years.sort((a, b) => a - b);
-
-    // If no budgets exist, default to current year
-    if (years.length === 0) {
-        years.push(new Date().getFullYear());
-    }
-
-    years.forEach(y => {
-        const item = document.createElement('div');
-        item.className = 'year-item';
-        item.innerText = y;
-        if (y === viewDate.getFullYear()) {
-            item.style.backgroundColor = 'var(--primary-color)';
-            item.style.color = 'white';
-        }
-        item.onclick = () => {
-            viewDate.setFullYear(y);
-            updateHeaderDateLabels();
-            buildMonthGrid(); // Update month grid options
-            showSelectionTab('months');
-        };
-        grid.appendChild(item);
-    });
-}
-
-function buildMonthGrid() {
-    const grid = document.getElementById('month-grid');
-    if (!grid) return;
-    grid.innerHTML = '';
-
-    const activeYear = viewDate.getFullYear();
-    const months = [];
-
-    // Extract unique months for budgets starting in the selected year
-    budgets.forEach(b => {
-        const start = new Date(b.startDate);
-        if (!isNaN(start.getTime()) && start.getFullYear() === activeYear) {
-            const m = start.getMonth(); // 0-11
-            if (!months.includes(m)) months.push(m);
-        }
-    });
-
-    months.sort((a, b) => a - b);
-
-    // If no budgets exist for selected year, default to current month
-    if (months.length === 0) {
-        months.push(new Date().getMonth());
-    }
-
-    months.forEach(m => {
-        const item = document.createElement('div');
-        item.className = 'month-item';
-        item.innerText = String(m + 1).padStart(2, '0');
-        if (m === viewDate.getMonth()) {
-            item.style.backgroundColor = 'var(--primary-color)';
-            item.style.color = 'white';
-        }
-        item.onclick = () => {
-            viewDate.setMonth(m);
-            updateHeaderDateLabels();
-            buildDayGrid(); // Update day grid options
-            showSelectionTab('days');
-        };
-        grid.appendChild(item);
-    });
-}
-
-function buildDayGrid() {
-    const grid = document.getElementById('day-grid');
-    if (!grid) return;
-    grid.innerHTML = '';
-
-    const activeYear = viewDate.getFullYear();
-    const activeMonth = viewDate.getMonth();
-    const days = [];
-
-    // Extract unique start days for budgets starting in selected year and month
-    budgets.forEach(b => {
-        const start = new Date(b.startDate);
-        if (!isNaN(start.getTime()) && start.getFullYear() === activeYear && start.getMonth() === activeMonth) {
-            const d = start.getDate();
-            if (!days.includes(d)) days.push(d);
-        }
-    });
-
-    days.sort((a, b) => a - b);
-
-    // If no budgets exist for selected year and month, default to current day
-    if (days.length === 0) {
-        days.push(new Date().getDate());
-    }
-
-    days.forEach(d => {
-        const item = document.createElement('div');
-        item.className = 'day-item';
-        item.innerText = String(d).padStart(2, '0');
-        if (d === viewDate.getDate()) {
-            item.style.backgroundColor = 'var(--primary-color)';
-            item.style.color = 'white';
-        }
-        item.onclick = () => {
-            viewDate.setDate(d);
-            updateHeaderDateLabels();
-            closeSelectionModal();
-            renderUI();
-        };
-        grid.appendChild(item);
-    });
-}
-
-function closeSelectionModal() {
-    document.getElementById('selection-modal')?.classList.remove('show');
-}
-
-// Search Feature
-function handleSearch(query) {
-    const resultsContainer = document.getElementById('search-results');
-    if (!resultsContainer) return;
-
-    const q = query.trim().toLowerCase();
-    if (q.length < 2) {
-        resultsContainer.innerHTML = '';
-        return;
-    }
-
-    resultsContainer.innerHTML = '';
-    let matches = [];
-
-    // Search through budgets, items, and purchases
-    budgets.forEach(b => {
-        // Budget match
-        if (b.name.toLowerCase().includes(q)) {
-            matches.push({
-                type: 'budget',
-                title: b.name,
-                subtitle: `${formatDateString(b.startDate)} - ${formatDateString(b.endDate)}`,
-                action: () => {
-                    viewBudgetDetail(b.id);
-                    document.getElementById('search-modal')?.classList.remove('show');
-                }
-            });
-        }
-
-        b.items && b.items.forEach(item => {
-            // Food item match
-            if (item.name.toLowerCase().includes(q)) {
-                matches.push({
-                    type: 'item',
-                    title: `${item.name} (${b.name})`,
-                    subtitle: `Budgeted: ${formatCurrency(item.budgetedAmount)}`,
-                    action: () => {
-                        viewBudgetDetail(b.id);
-                        document.getElementById('search-modal')?.classList.remove('show');
-                    }
-                });
-            }
-
-            item.purchases && item.purchases.forEach(p => {
-                // Purchase match
-                if (p.note && p.note.toLowerCase().includes(q)) {
-                    matches.push({
-                        type: 'purchase',
-                        title: `${item.name} purchase - ${p.note} (${b.name})`,
-                        subtitle: `${formatDateString(p.date)}: ${formatCurrency(p.amount)}`,
-                        action: () => {
-                            viewBudgetDetail(b.id);
-                            document.getElementById('search-modal')?.classList.remove('show');
-                        }
-                    });
-                }
-            });
-        });
-    });
-
-    if (matches.length === 0) {
-        resultsContainer.innerHTML = `<div class="empty-state"><i class="fas fa-search empty-state-icon"></i><p translate="search.empty">No items found matching your query.</p></div>`;
-        lang.translatePage();
-    } else {
-        matches.forEach(m => {
-            const div = document.createElement('div');
-            div.className = 'search-result-item';
-            div.innerHTML = `
-                <div class="result-ref">${m.title}</div>
-                <div class="result-text">${m.subtitle}</div>
-            `;
-            div.onclick = m.action;
-            resultsContainer.appendChild(div);
-        });
-    }
-}
-
-// Backup & Restore (.dem / .sem) - Encrypted with simple byte shifting
-function encryptData(str) {
-    const encoder = new TextEncoder();
-    const bytes = encoder.encode(str);
-    const encryptedBytes = new Uint8Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) {
-        encryptedBytes[i] = (bytes[i] + 5) % 256;
-    }
-    return encryptedBytes;
-}
-
-function decryptData(uint8Array) {
-    const decryptedBytes = new Uint8Array(uint8Array.length);
-    for (let i = 0; i < uint8Array.length; i++) {
-        decryptedBytes[i] = (uint8Array[i] - 5 + 256) % 256;
-    }
-    const decoder = new TextDecoder();
-    return decoder.decode(decryptedBytes);
-}
-
-function exportDataToDEM() {
-    const data = {
-        menap_settings: localStorage.getItem('menap_settings'),
-        menap_budgets: localStorage.getItem('menap_budgets'),
-        menap_lang_pref: localStorage.getItem('menap_lang_pref'),
-        menap_food_suggestions: localStorage.getItem('menap_food_suggestions')
-    };
-    
-    const jsonStr = JSON.stringify(data);
-    const encryptedBytes = encryptData(jsonStr);
-    const blob = new Blob([encryptedBytes], { type: 'application/octet-stream' });
-    
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `menap_backup_${new Date().toISOString().split('T')[0]}.dem`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-}
-
-function restoreFromQRData(decryptedData) {
+function pressCalc(key) {
+  if (key==='C') { calcExpression='0'; calcPreviewVal='0'; }
+  else if (key==='Backspace') { calcExpression = calcExpression.length>1 ? calcExpression.slice(0,-1) : '0'; }
+  else if (key==='=') {
     try {
-        if (decryptedData && (decryptedData.firstName || decryptedData.fn)) {
-            const data = decryptedData.fn ? expandData(decryptedData) : decryptedData;
-            
-            // Reconstruct appSettings
-            appSettings.profile = {
-                firstName: data.firstName || '',
-                lastName: data.lastName || '',
-                email: data.email || '',
-                photo: data.photo || '' // Typically empty in QR, but preserve if present
-            };
-            appSettings.lang = data.lang || appSettings.lang || 'fr';
-            appSettings.currency = data.currency || appSettings.currency || 'BIF';
-            appSettings.theme = data.theme || appSettings.theme || 'light';
-            appSettings.soundEnabled = data.soundEnabled !== false;
-            appSettings.isInitialized = true;
-            saveSettings();
-            
-            // Restore budgets
-            if (data.budgets) {
-                budgets = data.budgets;
-                saveBudgets();
-            }
-            
-            // Restore suggestions
-            if (data.food_suggestions) {
-                localStorage.setItem('menap_food_suggestions', JSON.stringify(data.food_suggestions));
-            }
-            
-            return true;
-        }
-    } catch (e) {
-        console.error("Failed to restore from QR data:", e);
-    }
-    return false;
+      const r = Function('"use strict";return ('+calcExpression+')')();
+      calcPreviewVal = r.toString(); calcExpression = r.toString();
+    } catch(e) { calcPreviewVal = 'Erreur'; }
+  } else {
+    if (calcExpression==='0' && !'+-*/('.includes(key)) calcExpression = key;
+    else calcExpression += key;
+    try { calcPreviewVal = Function('"use strict";return ('+calcExpression+')')().toString(); }
+    catch(e) { calcPreviewVal = calcExpression; }
+  }
+  const display = $('calc-display'), preview = $('calc-preview');
+  if (display) display.value = calcExpression;
+  if (preview) preview.textContent = parseFloat(calcPreviewVal) ? parseFloat(calcPreviewVal).toLocaleString('fr-FR') : calcPreviewVal;
 }
 
-function importDataFromQRCodeImage(file) {
-    toggleLoading(true);
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        const img = new Image();
-        img.onload = function() {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const code = jsQR(imageData.data, imageData.width, imageData.height);
-            
-            if (code) {
-                try {
-                    let decrypted = null;
-                    
-                    // 1. Try new shrunken binary QR format
-                    try {
-                        const bytes = base64ToUint8(code.data);
-                        const jsonStr = decryptData(bytes);
-                        const shrunken = JSON.parse(jsonStr);
-                        decrypted = expandData(shrunken);
-                    } catch (e) {
-                        // 2. Try old Base64 profile shift format (backwards compatibility)
-                        try {
-                            decrypted = decryptProfile(code.data);
-                        } catch (e2) {
-                            console.error("QR Code Base64 decryption failed:", e2);
-                        }
-                    }
-                    
-                    if (decrypted && (decrypted.firstName || decrypted.fn)) {
-                        const success = restoreFromQRData(decrypted);
-                        if (success) {
-                            playSound('success');
-                            alert(lang.get('settings.import_success') || 'Données restaurées avec succès ! Rechargement...');
-                            window.location.reload();
-                        } else {
-                            throw new Error("Restoration logic returned false");
-                        }
-                    } else {
-                        throw new Error("Invalid profile keys");
-                    }
-                } catch (err) {
-                    alert("QR Code invalide ou illisible.");
-                    toggleLoading(false);
-                }
-            } else {
-                alert("Aucun QR Code trouvé dans l'image.");
-                toggleLoading(false);
-            }
-        };
-        img.onerror = () => {
-            alert("Impossible de charger l'image.");
-            toggleLoading(false);
-        };
-        img.src = evt.target.result;
-    };
-    reader.readAsDataURL(file);
-}
-
-function handleImportFile(file) {
-    if (!file) return;
-    if (file.type.startsWith('image/') || /\.(png|jpe?g|gif)$/i.test(file.name)) {
-        importDataFromQRCodeImage(file);
-    } else {
-        importDataFromDEM(file);
-    }
-}
-
-function importDataFromDEM(file) {
-    if (!file) return;
-    toggleLoading(true);
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const arrayBuffer = e.target.result;
-        const bytes = new Uint8Array(arrayBuffer);
-        
-        let parsed = null;
-        
-        // 1. Try raw binary decryption
-        try {
-            const jsonStr = decryptData(bytes);
-            parsed = JSON.parse(jsonStr);
-        } catch (err) {
-            // 2. Try old Base64 string decryption (backwards compatibility)
-            try {
-                const decoder = new TextDecoder();
-                const text = decoder.decode(bytes).trim();
-                const decoded = decodeURIComponent(escape(atob(text)));
-                let decrypted = '';
-                for (let i = 0; i < decoded.length; i++) {
-                    decrypted += String.fromCharCode(decoded.charCodeAt(i) - 5);
-                }
-                parsed = JSON.parse(decrypted);
-            } catch (oldErr) {
-                console.error("Decryption failed:", oldErr);
-            }
-        }
-        
-        try {
-            if (parsed && (parsed.menap_settings || parsed.menap_budgets)) {
-                // Regular backup format
-                if (parsed.menap_settings) localStorage.setItem('menap_settings', parsed.menap_settings);
-                if (parsed.menap_budgets) localStorage.setItem('menap_budgets', parsed.menap_budgets);
-                if (parsed.menap_lang_pref) localStorage.setItem('menap_lang_pref', parsed.menap_lang_pref);
-                if (parsed.menap_food_suggestions) localStorage.setItem('menap_food_suggestions', parsed.menap_food_suggestions);
-                
-                playSound('success');
-                alert(lang.get('settings.import_success') || 'Data restored successfully! Reloading...');
-                window.location.reload();
-            } else if (parsed && (parsed.firstName || parsed.fn)) {
-                // User uploaded a QR-style JSON file as .dem! Restore it cleanly!
-                const success = restoreFromQRData(parsed);
-                if (success) {
-                    playSound('success');
-                    alert(lang.get('settings.import_success') || 'Data restored successfully! Reloading...');
-                    window.location.reload();
-                } else {
-                    throw new Error("Unified QR data restore failed");
-                }
-            } else {
-                throw new Error("Invalid structure");
-            }
-        } catch (err) {
-            alert(lang.get('settings.import_error') || 'Failed to restore data. Invalid file.');
-            toggleLoading(false);
-        }
-    };
-    reader.readAsArrayBuffer(file);
-}
-
-// Fetch Loading overlay trigger with simulated network delay
-async function changeLanguage(newLang) {
-    toggleLoading(true);
-    setTimeout(async () => {
-        try {
-            await lang.setLanguage(newLang);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            toggleLoading(false);
-        }
-    }, 400); // 400ms loading overlay visual fetch representation
-}
-
-// Draggable floating calculator implementation
-function makeElementDraggable(el, headerEl) {
-    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-    
-    headerEl.onmousedown = dragMouseDown;
-    headerEl.ontouchstart = dragTouchStart;
-
-    function dragMouseDown(e) {
-        e.preventDefault();
-        pos3 = e.clientX;
-        pos4 = e.clientY;
-        document.onmouseup = closeDragElement;
-        document.onmousemove = elementDrag;
-    }
-
-    function dragTouchStart(e) {
-        if (e.touches.length === 1) {
-            pos3 = e.touches[0].clientX;
-            pos4 = e.touches[0].clientY;
-            document.ontouchend = closeDragElement;
-            document.ontouchmove = elementTouchDrag;
-        }
-    }
-
-    function elementDrag(e) {
-        e.preventDefault();
-        pos1 = pos3 - e.clientX;
-        pos2 = pos4 - e.clientY;
-        pos3 = e.clientX;
-        pos4 = e.clientY;
-        
-        let newTop = el.offsetTop - pos2;
-        let newLeft = el.offsetLeft - pos1;
-        
-        newTop = Math.max(0, Math.min(window.innerHeight - el.offsetHeight, newTop));
-        newLeft = Math.max(0, Math.min(window.innerWidth - el.offsetWidth, newLeft));
-
-        el.style.top = newTop + "px";
-        el.style.left = newLeft + "px";
-    }
-
-    function elementTouchDrag(e) {
-        if (e.touches.length === 1) {
-            pos1 = pos3 - e.touches[0].clientX;
-            pos2 = pos4 - e.touches[0].clientY;
-            pos3 = e.touches[0].clientX;
-            pos4 = e.touches[0].clientY;
-
-            let newTop = el.offsetTop - pos2;
-            let newLeft = el.offsetLeft - pos1;
-
-            newTop = Math.max(0, Math.min(window.innerHeight - el.offsetHeight, newTop));
-            newLeft = Math.max(0, Math.min(window.innerWidth - el.offsetWidth, newLeft));
-
-            el.style.top = newTop + "px";
-            el.style.left = newLeft + "px";
-        }
-    }
-
-    function closeDragElement() {
-        document.onmouseup = null;
-        document.onmousemove = null;
-        document.ontouchend = null;
-        document.ontouchmove = null;
-    }
-}
-
-function pressCalc(val) {
-    playSound('click');
-    const display = document.getElementById('calc-display');
-    const preview = document.getElementById('calc-preview');
-    if (!display) return;
-    
-    if (val === 'C') {
-        display.value = '0';
-        if (preview) preview.innerText = '';
-    } else if (val === 'Backspace') {
-        if (display.value.length > 1) {
-            display.value = display.value.slice(0, -1);
-        } else {
-            display.value = '0';
-        }
-        updateCalcPreview();
-    } else if (val === '=') {
-        try {
-            const sanitize = display.value.replace(/[^0-9+\-*/().]/g, '');
-            const result = new Function("return " + sanitize)();
-            if (isNaN(result) || !isFinite(result)) {
-                display.value = 'Error';
-            } else {
-                display.value = parseFloat(result.toFixed(2)).toString();
-            }
-            if (preview) preview.innerText = '';
-        } catch (e) {
-            display.value = 'Error';
-            if (preview) preview.innerText = '';
-        }
-    } else {
-        if (display.value === '0' || display.value === 'Error') {
-            display.value = val;
-        } else {
-            display.value += val;
-        }
-        updateCalcPreview();
-    }
-}
-
-function updateCalcPreview() {
-    const display = document.getElementById('calc-display');
-    const preview = document.getElementById('calc-preview');
-    if (!display || !preview) return;
-
-    const val = display.value.trim();
-    if (!val || val === '0' || val === 'Error') {
-        preview.innerText = '';
-        return;
-    }
-
-    try {
-        const sanitize = val.replace(/[^0-9+\-*/().]/g, '');
-        let evalStr = sanitize;
-        if (/[+\-*/(]$/.test(sanitize)) {
-            evalStr = sanitize.slice(0, -1);
-        }
-        
-        if (!evalStr) {
-            preview.innerText = '';
-            return;
-        }
-
-        const result = new Function("return " + evalStr)();
-        if (isNaN(result) || !isFinite(result)) {
-            preview.innerText = '';
-        } else {
-            preview.innerText = '= ' + parseFloat(result.toFixed(2)).toString();
-        }
-    } catch (e) {
-        preview.innerText = '';
-    }
+function openCalculatorForField(fieldId) {
+  state.calcTarget = fieldId;
+  const calc = $('calculator-modal');
+  calc.style.display = 'flex';
 }
 
 function insertCalcValue() {
-    playSound('success');
-    const display = document.getElementById('calc-display');
-    if (!display || !window.activeCalculatorInput) return;
-    
-    const targetInput = document.getElementById(window.activeCalculatorInput);
-    if (targetInput) {
-        const rawVal = parseFloat(display.value) || 0;
-        targetInput.value = rawVal;
-        targetInput.focus();
-        targetInput.dispatchEvent(new Event('input'));
-    }
-    
-    const calcModal = document.getElementById('calculator-modal');
-    if (calcModal) {
-        calcModal.classList.remove('show');
-        calcModal.style.display = 'none';
-    }
+  const val = parseFloat(calcPreviewVal);
+  if (isNaN(val)) { showToast('Valeur invalide','error'); return; }
+  if (state.calcTarget) {
+    const field = $(state.calcTarget);
+    if (field) { field.value = val; field.dispatchEvent(new Event('input')); }
+    const calc = $('calculator-modal');
+    calc.style.display = 'none';
+    state.calcTarget = null;
+  } else {
+    navigator.clipboard?.writeText(val.toString())
+      .then(()=>showToast('Montant copié: '+val,'success'))
+      .catch(()=>showToast('Montant: '+val,'info'));
+  }
 }
 
-function setupFocusTracker() {
-    const inputsList = ['budget-duration-val', 'item-budgeted', 'purchase-amount', 'refill-amount'];
-    inputsList.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener('focus', (e) => {
-                window.activeCalculatorInput = e.target.id;
-            });
-        }
-    });
+function initCalculatorDrag() {
+  const modal = $('calculator-modal'), header = $('calculator-drag-header');
+  if (!modal || !header) return;
+  let isDragging=false, startX, startY, startLeft, startTop;
+  const drag = (clientX, clientY) => {
+    if (!isDragging) return;
+    modal.style.left = (startLeft + clientX - startX)+'px';
+    modal.style.top = (startTop + clientY - startY)+'px';
+    modal.style.right = 'auto'; modal.style.transform = 'none';
+  };
+  header.addEventListener('mousedown', e => {
+    isDragging=true; startX=e.clientX; startY=e.clientY;
+    const r=modal.getBoundingClientRect(); startLeft=r.left; startTop=r.top; e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => drag(e.clientX, e.clientY));
+  document.addEventListener('mouseup', ()=>{ isDragging=false; });
+  header.addEventListener('touchstart', e => {
+    isDragging=true; const t=e.touches[0]; startX=t.clientX; startY=t.clientY;
+    const r=modal.getBoundingClientRect(); startLeft=r.left; startTop=r.top;
+  }, {passive:true});
+  document.addEventListener('touchmove', e => { if(isDragging){const t=e.touches[0];drag(t.clientX,t.clientY);} }, {passive:true});
+  document.addEventListener('touchend', ()=>{ isDragging=false; });
 }
 
-function shareApp() {
-    playSound('click');
-    const url = window.location.href;
-    if (navigator.share) {
-        navigator.share({ title: 'Menap Budget Planner', url })
-            .then(() => playSound('success'))
-            .catch(e => console.warn("Share failed:", e));
-    } else {
-        navigator.clipboard.writeText(url).then(() => {
-            playSound('success');
-            alert(appSettings.lang === 'fr' ? 'Lien copié dans le presse-papiers!' : 'Ilinki yajyanywe!');
-        });
-    }
+// ─── Date Sélecteur ───
+function openSelectionModal() {
+  populateSelectionGrids();
+  openModal('selection-modal');
 }
 
-window.pressCalc = pressCalc;
-window.insertCalcValue = insertCalcValue;
-window.openRefillModal = openRefillModal;
-window.saveRefill = saveRefill;
+function populateSelectionGrids() {
+  const d = state.currentDate;
+  const currentYear = new Date().getFullYear();
 
-// Event bindings
-function setupInteractions() {
-    const setE = (id, event, fn) => {
-        const el = document.getElementById(id);
-        if (el) el[event] = fn;
+  const yearGrid = $('year-grid');
+  yearGrid.innerHTML = '';
+  for (let y=currentYear-3; y<=currentYear+2; y++) {
+    const el = document.createElement('div');
+    el.className = 'year-item' + (y===d.getFullYear()?' selected':'');
+    el.textContent = y;
+    el.onclick = () => {
+      state.currentDate.setFullYear(y);
+      updateHeaderDate();
+      populateSelectionGrids();
+      if (state.currentView==='dashboard') renderDashboard();
+      // Auto-avancer vers les mois
+      switchSelectionTab('months');
     };
+    yearGrid.appendChild(el);
+  }
 
-    // Header buttons
-    setE('menu-btn', 'onclick', () => {
-        playSound('click');
-        document.getElementById('drawer')?.classList.add('open');
-        document.getElementById('overlay')?.classList.add('show');
-    });
+  const monthGrid = $('month-grid');
+  monthGrid.innerHTML = '';
+  MONTHS_FR.forEach((m, i) => {
+    const el = document.createElement('div');
+    el.className = 'month-item' + (i===d.getMonth()?' selected':'');
+    el.textContent = m;
+    el.onclick = () => {
+      state.currentDate.setMonth(i);
+      updateHeaderDate();
+      populateSelectionGrids();
+      if (state.currentView==='dashboard') renderDashboard();
+      // Auto-avancer vers les jours
+      switchSelectionTab('days');
+    };
+    monthGrid.appendChild(el);
+  });
 
-    setE('overlay', 'onclick', () => {
-        playSound('click');
-        document.getElementById('drawer')?.classList.remove('open');
-        document.getElementById('overlay')?.classList.remove('show');
-    });
-
-    // Date selectors in header
-    setE('header-year-selector', 'onclick', () => { playSound('click'); openSelectionModal('years'); });
-    setE('header-month-selector', 'onclick', () => { playSound('click'); openSelectionModal('months'); });
-    setE('header-day-selector', 'onclick', () => { playSound('click'); openSelectionModal('days'); });
-
-    // Selection Modal Tabs
-    document.querySelectorAll('#selection-modal .tab').forEach(tab => {
-        tab.onclick = () => { playSound('click'); showSelectionTab(tab.getAttribute('data-tab')); };
-    });
-    setE('close-modal', 'onclick', () => { playSound('click'); closeSelectionModal(); });
-
-    // Calculator header button
-    setE('header-calc-btn', 'onclick', () => {
-        playSound('click');
-        document.getElementById('calc-display').value = '0';
-        document.getElementById('calc-preview').innerText = '';
-        
-        const calcModal = document.getElementById('calculator-modal');
-        if (calcModal) {
-            calcModal.style.display = 'flex';
-            calcModal.classList.add('show');
-            calcModal.style.top = '100px';
-            calcModal.style.left = `calc(50% - 150px)`;
-        }
-    });
-    setE('close-calculator-modal', 'onclick', () => {
-        playSound('click');
-        const calcModal = document.getElementById('calculator-modal');
-        if (calcModal) {
-            calcModal.classList.remove('show');
-            calcModal.style.display = 'none';
-        }
-    });
-
-    // Search header button
-    setE('search-btn', 'onclick', () => {
-        playSound('click');
-        document.getElementById('search-modal')?.classList.add('show');
-        document.getElementById('search-input')?.focus();
-    });
-    setE('close-search', 'onclick', () => {
-        playSound('click');
-        document.getElementById('search-modal')?.classList.remove('show');
-        document.getElementById('search-input').value = '';
-        document.getElementById('search-results').innerHTML = '';
-    });
-    setE('search-input', 'oninput', (e) => {
-        clearTimeout(window.searchTimeout);
-        window.searchTimeout = setTimeout(() => handleSearch(e.target.value), 300);
-    });
-
-    // Drawer Navigations
-    setE('nav-dashboard', 'onclick', () => {
-        playSound('click');
-        currentView = 'dashboard';
-        activeBudget = null;
-        renderUI();
-        closeDrawer();
-    });
-    setE('nav-budgets', 'onclick', () => {
-        playSound('click');
-        currentView = 'dashboard';
-        activeBudget = null;
-        renderUI();
-        closeDrawer();
-    });
-    setE('nav-search', 'onclick', () => {
-        playSound('click');
-        closeDrawer();
-        document.getElementById('search-modal')?.classList.add('show');
-        document.getElementById('search-input')?.focus();
-    });
-    setE('nav-backup', 'onclick', () => {
-        playSound('click');
-        closeDrawer();
-        document.getElementById('backup-modal')?.classList.add('show');
-    });
-    setE('nav-share', 'onclick', () => {
-        closeDrawer();
-        shareApp();
-    });
-    setE('nav-settings', 'onclick', () => {
-        playSound('click');
-        closeDrawer();
-        
-        const soundToggle = document.getElementById('sound-toggle');
-        if (soundToggle) soundToggle.checked = appSettings.soundEnabled !== false;
-        
-        const qrContainer = document.getElementById('settings-qr-container');
-        if (qrContainer) qrContainer.style.display = 'none';
-        
-        updateProfileUI();
-        document.getElementById('settings-modal')?.classList.add('show');
-    });
-    setE('nav-info', 'onclick', () => {
-        playSound('click');
-        closeDrawer();
-        document.getElementById('contact-modal')?.classList.add('show');
-    });
-    setE('nav-logout', 'onclick', () => {
-        playSound('click');
-        closeDrawer();
-        document.getElementById('logout-qr-display').style.display = 'none';
-        document.getElementById('logout-modal')?.classList.add('show');
-    });
-
-    // Modals Close buttons
-    setE('close-settings', 'onclick', () => { playSound('click'); document.getElementById('settings-modal')?.classList.remove('show'); });
-    setE('close-backup-modal', 'onclick', () => { playSound('click'); document.getElementById('backup-modal')?.classList.remove('show'); });
-    setE('close-refill-modal', 'onclick', () => { playSound('click'); document.getElementById('refill-modal')?.classList.remove('show'); selectedFoodItemForRefill = null; });
-    setE('close-logout-modal', 'onclick', () => { playSound('click'); document.getElementById('logout-modal')?.classList.remove('show'); });
-
-    // Settings Modal selects
-    setE('theme-select', 'onchange', (e) => {
-        playSound('click');
-        appSettings.theme = e.target.value;
-        saveSettings();
-        applyTheme();
-    });
-    setE('lang-select', 'onchange', (e) => {
-        playSound('click');
-        changeLanguage(e.target.value);
-    });
-    setE('currency-select', 'onchange', (e) => {
-        playSound('click');
-        appSettings.currency = e.target.value;
-        saveSettings();
-        renderUI();
-    });
-    
-    // New settings bindings for Profile QR and sound toggle
-    setE('sound-toggle', 'onchange', (e) => {
-        appSettings.soundEnabled = e.target.checked;
-        saveSettings();
-        playSound('click');
-    });
-    setE('generate-qr-btn', 'onclick', () => {
-        playSound('click');
-        generateProfileQRCode();
-    });
-    setE('download-qr-btn', 'onclick', () => {
-        playSound('click');
-        downloadProfileQRCode();
-    });
-    
-    // Logout Modal bindings
-    setE('logout-export-qr', 'onclick', () => {
-        playSound('click');
-        generateLogoutQRCode();
-    });
-    setE('logout-download-qr', 'onclick', () => {
-        playSound('click');
-        downloadLogoutQRCode();
-    });
-    setE('logout-export-dem', 'onclick', () => {
-        playSound('click');
-        exportDataToDEM();
-    });
-    setE('logout-confirm-btn', 'onclick', () => {
-        playSound('warning');
-        const confirmMsg = appSettings.lang === 'fr' 
-            ? "Êtes-vous sûr de vouloir vous déconnecter? Toutes vos données locales non sauvegardées seront définitivement perdues." 
-            : (appSettings.lang === 'rw' 
-                ? "Ese urashaka gusohoka by'ukuri? Amakuru yose utabitse azasibwa burundu."
-                : (appSettings.lang === 'rn'
-                    ? "Ese urashaka gusohoka vy'ukuri? Amakuru yose utabitse aca atakara burundu."
-                    : "Are you sure you want to log out? All unsaved local data will be permanently lost."));
-        if (confirm(confirmMsg)) {
-            localStorage.clear();
-            window.location.reload();
-        }
-    });
-
-    // Backups actions inside backup screen
-    setE('export-btn', 'onclick', () => { playSound('click'); exportDataToDEM(); });
-    setE('import-btn-trigger', 'onclick', () => { playSound('click'); document.getElementById('import-file-input').click(); });
-    setE('import-file-input', 'onchange', (e) => {
-        if (e.target.files.length > 0) {
-            handleImportFile(e.target.files[0]);
-        }
-    });
-
-    // Contact modal close
-    setE('close-contact', 'onclick', () => { playSound('click'); document.getElementById('contact-modal')?.classList.remove('show'); });
-
-    // Budgets Modal Close/Save
-    setE('close-budget-modal', 'onclick', () => { playSound('click'); document.getElementById('budget-modal').classList.remove('show'); });
-    setE('save-budget-btn', 'onclick', () => { playSound('click'); createOrUpdateBudget(); });
-
-    // Food Item Modal Close/Save & Advice binding
-    setE('close-item-modal', 'onclick', () => { playSound('click'); document.getElementById('item-modal').classList.remove('show'); });
-    setE('save-item-btn', 'onclick', () => { playSound('click'); addFoodItem(); });
-    setE('item-name', 'oninput', (e) => {
-        showBudgetAdvice(e.target.value);
-    });
-
-    // Purchase Modal Close/Save
-    setE('close-purchase-modal', 'onclick', () => { playSound('click'); document.getElementById('purchase-modal').classList.remove('show'); });
-    setE('save-purchase-btn', 'onclick', () => { playSound('click'); addPurchase(); });
-
-    // Purchases List Modal Close
-    setE('close-purchases-list-modal', 'onclick', () => {
-        playSound('click');
-        document.getElementById('purchases-list-modal').classList.remove('show');
-        selectedFoodItemForPurchasesList = null;
-    });
-
-    // Refill Save Action
-    setE('save-refill-btn', 'onclick', () => { playSound('click'); saveRefill(); });
-
-    // Set tracker focused inputs
-    setupFocusTracker();
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+  const dayGrid = $('day-grid');
+  dayGrid.innerHTML = '';
+  for (let day=1; day<=daysInMonth; day++) {
+    const el = document.createElement('div');
+    el.className = 'day-item' + (day===d.getDate()?' selected':'');
+    el.textContent = day;
+    el.onclick = () => {
+      state.currentDate.setDate(day);
+      updateHeaderDate();
+      populateSelectionGrids();
+      if (state.currentView==='dashboard') renderDashboard();
+      // Fermer le modal après sélection du jour
+      closeModal('selection-modal');
+    };
+    dayGrid.appendChild(el);
+  }
 }
 
-function closeDrawer() {
-    document.getElementById('drawer')?.classList.remove('open');
-    document.getElementById('overlay')?.classList.remove('show');
+function switchSelectionTab(tabName) {
+  document.querySelectorAll('#selection-modal .tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('#selection-modal .tab-content').forEach(c=>c.classList.remove('active-content'));
+  const tab = document.querySelector(`#selection-modal .tab[data-tab="${tabName}"]`);
+  if (tab) tab.classList.add('active');
+  const map = { years:'year-grid-container', months:'month-grid-container', days:'day-grid-container' };
+  const container = $(map[tabName]);
+  if (container) container.classList.add('active-content');
 }
 
-function toggleLoading(show) {
-    const loading = document.getElementById('loading');
-    if (loading) loading.style.display = show ? 'flex' : 'none';
+// ─── Recherche ───
+function performSearch(query) {
+  const container = $('search-results');
+  if (!query) { container.innerHTML=''; return; }
+  query = query.toLowerCase();
+  const results = [];
+  db.getBudgets().forEach(b => {
+    if (b.name.toLowerCase().includes(query)) results.push({ type:'budget', id:b.id, ref:b.name, text:`Budget · ${b.start_date} → ${b.end_date}` });
+    db.getItemsByBudget(b.id).forEach(i => {
+      if (i.name.toLowerCase().includes(query)) results.push({ type:'item', id:i.id, budgetId:b.id, ref:i.name, text:`Achat dans "${b.name}"` });
+    });
+  });
+  if (results.length === 0) {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:30px">Aucun résultat</div>'; return;
+  }
+  container.innerHTML = results.map(r => `
+    <div class="search-result-item" onclick="handleSearchResult('${r.type}',${r.id},${r.budgetId||0})">
+      <div class="result-ref"><i class="fas fa-${r.type==='budget'?'folder':'empty-alt'}"></i> ${escHtml(r.ref)}</div>
+      <div class="result-text">${escHtml(r.text)}</div>
+    </div>`).join('');
 }
 
-init();
+function handleSearchResult(type, id, budgetId) {
+  closeModal('search-modal');
+  if (type==='budget') showBudgetDetail(id);
+  else if (type==='item' && budgetId) showBudgetDetail(budgetId);
+}
+
+// ─── Paramètres ───
+function loadSettings() {
+  const theme = db.getSetting('theme','light');
+  const currency = db.getSetting('currency','BIF');
+  state.currency = currency;
+  applyTheme(theme);
+  const sel = $('theme-select'); if(sel) sel.value = theme;
+  const lSel = $('lang-select'); if(lSel) lSel.value = db.getSetting('lang','fr');
+  const cSel = $('currency-select'); if(cSel) cSel.value = currency;
+  const snd = $('sound-toggle'); if(snd) snd.checked = db.getSetting('sound','1')==='1';
+}
+
+function updateSettingsProfile() {
+  const p = db.getProfile();
+  const fullName = `${p.first_name} ${p.last_name}`.trim() || 'Utilisateur';
+  const nameEl = $('settings-profile-name'); if(nameEl) nameEl.textContent = fullName;
+  const emailEl = $('settings-profile-email'); if(emailEl) emailEl.textContent = p.email||'';
+  if (p.photo) {
+    const img = $('settings-profile-pic'), fb = $('settings-profile-pic-fallback');
+    if(img){img.src=p.photo;img.style.display=''}
+    if(fb) fb.style.display='none';
+  }
+  const dName = $('drawer-profile-name'); if(dName) dName.textContent = fullName;
+  const dEmail = $('drawer-profile-email'); if(dEmail) dEmail.textContent = p.email||'';
+  if (p.photo) {
+    const da = $('drawer-avatar'), df = $('drawer-avatar-fallback');
+    if(da){da.src=p.photo;da.style.display=''}
+    if(df) df.style.display='none';
+  }
+  const badge = $('drawer-role-badge');
+  if (badge) {
+    const member = db.getMemberByUserId(p.user_id);
+    badge.style.display = (member && member.role==='manager') ? 'inline-block' : 'none';
+  }
+}
+
+// ─── Membres Modal ───
+function openMembersModal() {
+  renderMembersList();
+  checkPrivilegeTransfer();
+  openModal('members-modal');
+}
+
+function renderMembersList() {
+  const members = db.getMembers();
+  const list = $('members-list'), count = $('members-count');
+  if (count) count.textContent = members.length;
+  if (members.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:20px"><i class="fas fa-users" style="font-size:24px;color:var(--text-muted)"></i><div style="font-size:13px">Aucun membre dans le ménage</div></div>';
+  } else {
+    list.innerHTML = members.map(m => {
+      const initials = (m.first_name?.[0]||'')+(m.last_name?.[0]||'');
+      const name = `${m.first_name||''} ${m.last_name||''}`.trim()||'Membre';
+      return `<div class="member-row">
+        <div class="member-avatar">
+          ${m.photo?`<img src="${escHtml(m.photo)}" alt="${escHtml(name)}" style="width:100%;height:100%;object-fit:cover">`:(initials||'<i class="fas fa-user"></i>')}
+        </div>
+        <div class="member-info">
+          <div class="member-name">${escHtml(name)}</div>
+          <div class="member-email">${escHtml(m.email||'')}</div>
+        </div>
+        <span class="member-role ${m.role==='manager'?'manager':'member'}">${m.role==='manager'?'👑 Gérant':'Membre'}</span>
+        ${isCurrentUserManager()&&m.role!=='manager'?`<button class="item-action-btn delete-btn" style="width:28px;height:28px;font-size:11px;flex-shrink:0" onclick="removeMember(${m.id})" title="Retirer"><i class="fas fa-user-minus"></i></button>`:''}
+      </div>`;
+    }).join('');
+  }
+
+  // Section transfert
+  const transferSection = $('privilege-transfer-section');
+  if (transferSection) {
+    if (isCurrentUserManager() && members.length > 1) {
+      transferSection.style.display = 'block';
+      const sel = $('transfer-target-select');
+      sel.innerHTML = '<option value="">-- Choisir un membre --</option>';
+      members.filter(m=>m.role!=='manager').forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = `${m.first_name||''} ${m.last_name||''}`.trim();
+        sel.appendChild(opt);
+      });
+    } else {
+      transferSection.style.display = 'none';
+    }
+  }
+}
+
+function removeMember(memberId) {
+  if (confirm('Retirer ce membre du ménage?')) {
+    db.deleteMember(memberId);
+    renderMembersList();
+    showToast('Membre retiré','info');
+  }
+}
+
+function checkPrivilegeTransfer() {
+  const profile = db.getProfile();
+  const myMember = db.getMemberByUserId(profile.user_id);
+  const pending = db.getPendingTransferRequest();
+  const approvalSection = $('transfer-approval-section');
+  if (!approvalSection) return;
+  if (pending && myMember && pending.to_member_id == myMember.id) {
+    approvalSection.style.display = 'block';
+    const from = db.getMemberById(pending.from_member_id);
+    const fromName = from ? `${from.first_name} ${from.last_name}`.trim() : 'Le gestionnaire';
+    $('transfer-approval-text').textContent = `${fromName} souhaite vous céder les privilèges de gestionnaire. Acceptez-vous?`;
+    $('approve-transfer-btn').onclick = () => {
+      db.resolveTransferRequest(pending.id, true);
+      renderMembersList(); approvalSection.style.display='none';
+      updateSettingsProfile();
+      showToast('Vous êtes maintenant gestionnaire!','success');
+    };
+    $('reject-transfer-btn').onclick = () => {
+      db.resolveTransferRequest(pending.id, false);
+      approvalSection.style.display = 'none';
+      showToast('Demande refusée','info');
+    };
+  } else {
+    approvalSection.style.display = 'none';
+  }
+}
+
+// ─── Export .menap avec sélection de budgets ───
+let _importParsedData = null; // données parsées du fichier importé
+
+function openBackupModal() {
+  openModal('backup-modal');
+  refreshExportBudgetList();
+}
+
+function refreshExportBudgetList() {
+  const container = $('export-budget-list');
+  if (!container) return;
+  const budgets = db.getBudgets();
+  if (budgets.length === 0) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:10px;text-align:center">Aucun budget disponible</div>';
+    return;
+  }
+  container.innerHTML = budgets.map(b => {
+    const items = db.getItemsByBudget(b.id);
+    const total = items.reduce((s, i) => s + (i.budgeted_amount || 0), 0);
+    return `<label class="budget-select-row" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:var(--card-bg);border:1.5px solid var(--border-color);cursor:pointer">
+      <input type="checkbox" class="export-budget-cb" data-id="${b.id}" checked style="width:18px;height:18px;cursor:pointer;accent-color:var(--primary-color)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.name}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${b.start_date} → ${b.end_date} · ${items.length} article(s) · ${fmt(total)}</div>
+      </div>
+    </label>`;
+  }).join('');
+}
+
+function exportMenap() {
+  const checkboxes = document.querySelectorAll('.export-budget-cb:checked');
+  if (checkboxes.length === 0) { showToast('Sélectionnez au moins un budget','error'); return; }
+  const ids = Array.from(checkboxes).map(cb => parseInt(cb.dataset.id));
+  const content = db.exportToMenap(ids);
+  const blob = new Blob([content], { type:'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=`menap_backup_${today()}.menap`; a.click();
+  URL.revokeObjectURL(url);
+  showToast(`${ids.length} budget(s) exporté(s)!`, 'success');
+}
+
+// Alias pour compatibilité
+function exportDem() { exportMenap(); }
+
+// ─── Import .menap avec aperçu et sélection ───
+async function handleImportFile(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext==='menap'||ext==='dem'||ext==='sem') {
+    const reader = new FileReader();
+    reader.onload = e => showImportPreview(e.target.result);
+    reader.readAsText(file);
+  } else if (/^image\//.test(file.type)) {
+    const qrData = await scanQRFromFile(file);
+    if (qrData) handleQRScanned(qrData);
+    else showToast('Aucun QR détecté dans cette image','error');
+  } else {
+    showToast('Format non reconnu (.menap ou image QR)','error');
+  }
+}
+
+function showImportPreview(content) {
+  const data = db.parseMenapFile(content);
+  if (!data) { showToast('Fichier .menap invalide ou corrompu','error'); return; }
+  _importParsedData = { content, data };
+
+  const preview = $('import-preview');
+  const listEl  = $('import-budget-list');
+  if (!preview || !listEl) return;
+
+  const budgets = data.budgets || [];
+  if (budgets.length === 0) {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:10px;text-align:center">Aucun budget dans ce fichier</div>';
+    preview.style.display = 'block';
+    return;
+  }
+
+  listEl.innerHTML = budgets.map((b, i) => {
+    const items = b.items || [];
+    const total = items.reduce((s, it) => s + (it.budgeted_amount || 0), 0);
+    const purchases = items.reduce((s, it) => s + (it.purchases ? it.purchases.length : 0), 0);
+    // Vérifier si ce budget existe déjà localement
+    const isDuplicate = db.getBudgets().some(
+      existing => existing.name === b.name && existing.start_date === b.start_date && existing.end_date === b.end_date
+    );
+    return `<label class="budget-select-row" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:var(--card-bg);border:1.5px solid ${isDuplicate ? 'var(--danger-color)' : 'var(--border-color)'};cursor:pointer;opacity:${isDuplicate ? '0.65' : '1'}">
+      <input type="checkbox" class="import-budget-cb" data-index="${i}" ${isDuplicate ? '' : 'checked'} style="width:18px;height:18px;cursor:pointer;accent-color:var(--primary-color)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.name}${isDuplicate ? ' <span style="font-size:10px;color:var(--danger-color);font-weight:600">⚠ Déjà existant</span>' : ''}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${b.start_date} → ${b.end_date}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${items.length} article(s) · ${purchases} achat(s) · Budgété: ${fmt(total)}</div>
+      </div>
+    </label>`;
+  }).join('');
+
+  preview.style.display = 'block';
+  showToast(`${budgets.length} budget(s) trouvé(s) dans le fichier`, 'info');
+}
+
+function confirmImport() {
+  if (!_importParsedData) return;
+  const checkboxes = document.querySelectorAll('.import-budget-cb:checked');
+  if (checkboxes.length === 0) { showToast('Sélectionnez au moins un budget','error'); return; }
+  const indices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.index));
+  const result = db.importFromMenap(_importParsedData.content, indices);
+  if (result.ok) {
+    if (result.imported === 0 && result.skipped > 0) {
+      showToast(`Tous les budgets existent déjà (${result.skipped} ignoré(s))`, 'info');
+    } else if (result.skipped > 0) {
+      showToast(`${result.imported} importé(s), ${result.skipped} doublon(s) ignoré(s)`, 'success');
+    } else {
+      showToast(`${result.imported} budget(s) importé(s) avec succès!`, 'success');
+    }
+    _importParsedData = null;
+    $('import-preview').style.display = 'none';
+    setTimeout(() => { renderDashboard(); closeModal('backup-modal'); }, 900);
+  } else {
+    showToast('Erreur lors de l\'importation','error');
+  }
+}
+
+function exportSQLiteDB() {
+  const buf = db.exportToBinary();
+  const blob = new Blob([buf], { type:'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=`menap_${today()}.db`; a.click();
+  URL.revokeObjectURL(url);
+  showToast('Base SQLite exportée!','success');
+}
+
+// ─── Indicateur de synchronisation ───
+function updateSyncIndicator() {
+  const dot  = $('sync-dot');
+  const text = $('sync-text');
+  const online = navigator.onLine;
+  const polling = !!db._pollTimer;
+
+  if (dot) {
+    if (!online) {
+      dot.className = 'sync-dot offline';
+    } else if (db._uploading || db._syncPending) {
+      dot.className = 'sync-dot syncing';
+    } else if (polling) {
+      dot.className = 'sync-dot realtime';
+    } else {
+      dot.className = 'sync-dot';
+    }
+  }
+  if (text) {
+    if (!online)            text.textContent = 'Hors-ligne';
+    else if (db._uploading) text.textContent = 'Synchronisation…';
+    else if (db._syncPending) text.textContent = 'En attente…';
+    else if (polling)       text.textContent = 'En ligne ●';
+    else                    text.textContent = 'Synchronisé';
+  }
+}
+window.addEventListener('online',  updateSyncIndicator);
+window.addEventListener('offline', updateSyncIndicator);
+window._onSyncStateChange = updateSyncIndicator;
+
+// ─── Modification de profil ───
+function openEditProfile() {
+  const profile = db.getProfile();
+  if (!profile) return;
+  $('edit-profile-first-name').value  = profile.first_name || '';
+  $('edit-profile-last-name').value   = profile.last_name  || '';
+  $('edit-profile-email').value       = profile.email      || '';
+  $('edit-profile-old-pw').value      = '';
+  $('edit-profile-new-pw').value      = '';
+  $('edit-profile-new-pw2').value     = '';
+  const preview = $('edit-profile-pic-preview');
+  if (preview) {
+    preview.dataset.photo = '';
+    preview.innerHTML = profile.photo
+      ? `<img src="${profile.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+      : `<i class="fas fa-user" style="font-size:28px;color:var(--primary-color)"></i>`;
+  }
+  const section = $('edit-profile-section');
+  if (section) {
+    section.style.display = section.style.display === 'none' ? 'block' : 'none';
+  }
+}
+
+function saveEditProfile() {
+  const fn  = $('edit-profile-first-name').value.trim();
+  const ln  = $('edit-profile-last-name').value.trim();
+  const em  = $('edit-profile-email').value.trim();
+  const oldPw = $('edit-profile-old-pw').value;
+  const newPw = $('edit-profile-new-pw').value;
+  const newPw2 = $('edit-profile-new-pw2').value;
+  const photo = $('edit-profile-pic-preview')?.dataset.photo || undefined;
+
+  if (!fn) { showToast('Prénom requis','error'); return; }
+  if (newPw && newPw !== newPw2) { showToast('Les mots de passe ne correspondent pas','error'); return; }
+
+  try {
+    db.updateProfileFull({ first_name: fn, last_name: ln, email: em,
+      old_password: oldPw || undefined, new_password: newPw || undefined, photo });
+    showToast('Profil mis à jour!','success');
+    updateSettingsProfile();
+    const section = $('edit-profile-section');
+    if (section) section.style.display = 'none';
+  } catch(e) {
+    if (e.message === 'email_exists')    showToast('Cet email est déjà utilisé','error');
+    else if (e.message === 'wrong_password') showToast('Ancien mot de passe incorrect','error');
+    else if (e.message === 'password_short') showToast('Nouveau mot de passe trop court (min 4 caractères)','error');
+    else showToast('Erreur: ' + e.message,'error');
+  }
+}
+
+// ─── Partager ───
+function shareApp() {
+  const url = window.location.origin + window.location.pathname;
+  if (navigator.share) {
+    navigator.share({ title:'Menap - Budget Achataire', text:'Gérez votre budget achataire familial!', url }).catch(()=>{});
+  } else {
+    navigator.clipboard?.writeText(url).then(()=>showToast('Lien copié!','success')).catch(()=>showToast('Partagez: '+url,'info'));
+  }
+}
+
+// ─── Onboarding ───
+function showOnboarding() {
+  const screen = $('onboarding-screen');
+  if (screen) screen.classList.remove('hidden');
+}
+
+function hideOnboarding() {
+  const screen = $('onboarding-screen');
+  if (screen) screen.classList.add('hidden');
+}
+
+// ─── Bindings Event ───
+function initEventListeners() {
+  // Drawer
+  $('menu-btn').addEventListener('click', ()=>{ $('drawer').classList.add('open'); $('overlay').classList.add('show'); });
+  $('overlay').addEventListener('click', closeDrawer);
+  function closeDrawer() { $('drawer').classList.remove('open'); $('overlay').classList.remove('show'); }
+
+  const navItems = {
+    'nav-dashboard': () => { closeDrawer(); showDashboard(); },
+    'nav-budgets': () => { closeDrawer(); showBudgetsView(); },
+    'nav-members': () => { closeDrawer(); openMembersModal(); },
+    'nav-search': () => { closeDrawer(); openModal('search-modal'); setTimeout(()=>$('search-input').focus(),200); },
+    'nav-backup': () => { closeDrawer(); openBackupModal(); },
+    'nav-share': () => { closeDrawer(); shareApp(); },
+    'nav-settings': () => { closeDrawer(); updateSettingsProfile(); openModal('settings-modal'); },
+    'nav-info': () => { closeDrawer(); openModal('contact-modal'); },
+    'nav-logout': () => { closeDrawer(); openModal('logout-modal'); }
+  };
+  Object.entries(navItems).forEach(([id, fn]) => { const el=$(id); if(el) el.addEventListener('click',fn); });
+
+  // Header
+  $('search-btn').addEventListener('click', ()=>{ openModal('search-modal'); setTimeout(()=>$('search-input').focus(),200); });
+  $('header-calc-btn').addEventListener('click', ()=>{
+    const c = $('calculator-modal');
+    c.style.display = c.style.display==='flex' ? 'none' : 'flex';
+  });
+
+  // Date selectors
+  $('header-year-selector').addEventListener('click', ()=>{ openSelectionModal(); switchSelectionTab('years'); });
+  $('header-month-selector').addEventListener('click', ()=>{ openSelectionModal(); switchSelectionTab('months'); });
+  $('header-day-selector').addEventListener('click', ()=>{ openSelectionModal(); switchSelectionTab('days'); });
+
+  // Selection modal tabs
+  document.querySelectorAll('#selection-modal .tab').forEach(tab => {
+    tab.addEventListener('click', ()=>switchSelectionTab(tab.dataset.tab));
+  });
+  $('close-modal').addEventListener('click', ()=>closeModal('selection-modal'));
+
+  // Close buttons
+  const closeMaps = {
+    'close-search':'search-modal','close-settings':'settings-modal','close-contact':'contact-modal',
+    'close-budget-modal':'budget-modal','close-item-modal':'item-modal','close-purchase-modal':'purchase-modal',
+    'close-purchases-list-modal':'purchases-list-modal','close-refill-modal':'refill-modal',
+    'close-logout-modal':'logout-modal','close-backup-modal':'backup-modal',
+    'close-members-modal':'members-modal','close-camera-qr':'camera-qr-modal'
+  };
+  Object.entries(closeMaps).forEach(([btnId, modalId]) => {
+    const btn=$(btnId); if(!btn) return;
+    btn.addEventListener('click', ()=>closeModal(modalId));
+  });
+  const calcClose = $('close-calculator-modal');
+  if (calcClose) calcClose.addEventListener('click', ()=>{ $('calculator-modal').style.display='none'; });
+
+  $('stop-camera-btn').addEventListener('click', ()=>{ stopCamera(); closeModal('camera-qr-modal'); });
+
+  // Recherche
+  $('search-input').addEventListener('input', e=>performSearch(e.target.value));
+
+  // Paramètres
+  $('theme-select').addEventListener('change', e=>{ db.setSetting('theme',e.target.value); applyTheme(e.target.value); });
+  $('lang-select').addEventListener('change', e=>{ db.setSetting('lang',e.target.value); state.lang?.setLanguage(e.target.value); });
+  $('currency-select').addEventListener('change', e=>{ state.currency=e.target.value; db.setSetting('currency',e.target.value); if(state.currentView==='dashboard') renderDashboard(); });
+  $('sound-toggle').addEventListener('change', e=>db.setSetting('sound',e.target.checked?'1':'0'));
+
+  // QR Paramètres
+  $('generate-qr-btn')?.addEventListener('click', ()=>{ $('settings-qr-container').classList.remove('hidden'); generateInviteQR('qrcode'); });
+  $('download-qr-btn')?.addEventListener('click', ()=>downloadQR('qrcode','menap-invite-qr.png'));
+
+  // Modification de profil
+  $('edit-profile-btn')?.addEventListener('click', openEditProfile);
+  $('save-edit-profile-btn')?.addEventListener('click', saveEditProfile);
+  $('cancel-edit-profile-btn')?.addEventListener('click', ()=>{ const s=$('edit-profile-section'); if(s) s.style.display='none'; });
+  $('edit-profile-pic-btn')?.addEventListener('click', ()=>$('edit-profile-pic-input')?.click());
+  $('edit-profile-pic-input')?.addEventListener('change', e=>{
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const p = $('edit-profile-pic-preview');
+      if (p) { p.innerHTML=`<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`; p.dataset.photo=ev.target.result; }
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Supprimer compte
+  $('delete-account-btn')?.addEventListener('click', ()=>{
+    if (!confirm('Supprimer définitivement votre compte et toutes vos données ? Action irréversible.')) return;
+    if (!confirm('Dernière confirmation : toutes les données seront supprimées.')) return;
+    db.deleteCurrentUser();
+    showToast('Compte supprimé.','info');
+    setTimeout(()=>location.reload(),800);
+  });
+
+  // Membres
+  $('generate-invite-qr-btn').addEventListener('click', ()=>{ $('invite-qr-container').classList.remove('hidden'); generateInviteQR('invite-qrcode'); });
+  $('download-invite-qr-btn').addEventListener('click', ()=>downloadQR('invite-qrcode','menap-invite-qr.png'));
+  $('transfer-privilege-btn').addEventListener('click', ()=>{
+    const targetId = $('transfer-target-select').value;
+    if (!targetId) { showToast('Choisissez un membre','error'); return; }
+    const profile = db.getProfile();
+    const myMember = db.getMemberByUserId(profile.user_id);
+    db.createTransferRequest(myMember?.id||null, parseInt(targetId));
+    showToast("Demande envoyée! En attente d'approbation.",'success');
+  });
+
+  // Budget
+  $('save-budget-btn').addEventListener('click', saveBudget);
+
+  // Item
+  $('item-name').addEventListener('input', e=>{ renderItemSuggestions(e.target.value); if(e.target.value.length>2) checkItemAdvisor(e.target.value); });
+  $('save-item-btn').addEventListener('click', saveItem);
+
+  // Purchase
+  $('save-purchase-btn').addEventListener('click', savePurchase);
+  $('save-refill-btn').addEventListener('click', saveRefill);
+
+  $('export-btn')?.addEventListener('click', exportMenap);
+  $('export-db-btn')?.addEventListener('click', exportSQLiteDB);
+  $('export-select-all')?.addEventListener('click', ()=>{ document.querySelectorAll('.export-budget-cb').forEach(cb=>cb.checked=true); });
+  $('export-select-none')?.addEventListener('click', ()=>{ document.querySelectorAll('.export-budget-cb').forEach(cb=>cb.checked=false); });
+  $('import-btn-trigger')?.addEventListener('click', ()=>{ $('import-preview').style.display='none'; $('import-file-input').click(); });
+  $('import-file-input')?.addEventListener('change', e=>{ if(e.target.files[0]) handleImportFile(e.target.files[0]); e.target.value=''; });
+  $('import-select-all')?.addEventListener('click', ()=>{ document.querySelectorAll('.import-budget-cb').forEach(cb=>cb.checked=true); });
+  $('import-select-none')?.addEventListener('click', ()=>{ document.querySelectorAll('.import-budget-cb').forEach(cb=>cb.checked=false); });
+  $('import-confirm-btn')?.addEventListener('click', confirmImport);
+
+  // Logout — export .menap
+  $('logout-export-dem')?.addEventListener('click', exportMenap);
+  $('logout-confirm-btn')?.addEventListener('click', ()=>{ db.clearAll(); location.reload(); });
+
+  // ─── Onboarding Tabs (2 onglets seulement : Créer + Connexion) ───
+  $('tab-onboard-create')?.addEventListener('click', ()=> setOnboardTab('create'));
+  $('tab-onboard-login')?.addEventListener('click',  ()=> setOnboardTab('login'));
+
+  function setOnboardTab(tab) {
+    ['create','login'].forEach(t => {
+      $(`tab-onboard-${t}`)?.classList.toggle('active', t===tab);
+      $(`onboard-${t}-section`)?.classList.toggle('hidden', t!==tab);
+    });
+  }
+
+  // Photo profil
+  $('profile-pic-input').addEventListener('change', e=>{
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const p = $('profile-pic-preview');
+      p.innerHTML = `<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+      p.dataset.photo = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Créer profil
+  $('setup-start-btn').addEventListener('click', ()=>{
+    const fn = $('profile-first-name').value.trim();
+    const ln = $('profile-last-name').value.trim();
+    const em = $('profile-email').value.trim();
+    const pw = $('profile-password').value;
+    const lang = $('setup-lang-select').value;
+    const currency = $('setup-currency-select').value;
+    const photo = $('profile-pic-preview').dataset.photo||'';
+
+    if (!fn) { showToast('Prénom requis','error'); return; }
+    if (!em) { showToast('Email requis','error'); return; }
+    if (!pw || pw.length < 4) { showToast('Mot de passe trop court (min. 4 caractères)','error'); return; }
+
+    const userId = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36));
+    db.saveProfile({ user_id:userId, first_name:fn, last_name:ln, email:em, password:pw, photo });
+    db.setSetting('lang', lang);
+    db.setSetting('currency', currency);
+    db.setSetting('theme', 'light');
+    db.setSetting('initialized', '1');
+    state.currency = currency;
+
+    // S'ajouter comme gestionnaire du ménage
+    db.addMember({ user_id:userId, first_name:fn, last_name:ln, email:em, photo, role:'manager' });
+
+    state.lang?.setLanguage(lang);
+    hideOnboarding();
+    updateSettingsProfile();
+    updateHeaderDate();
+    renderDashboard();
+    showToast(`Bienvenue ${fn}!`,'success');
+  });
+
+  // Connexion email+mdp
+  $('login-btn').addEventListener('click', ()=>{
+    const em = $('login-email').value.trim();
+    const pw = $('login-password').value;
+    if (!em || !pw) { showToast('Email et mot de passe requis','error'); return; }
+    const initialized = db.getSetting('initialized','0');
+    if (initialized === '1') {
+      if (db.verifyPassword(em, pw)) {
+        hideOnboarding();
+        updateSettingsProfile();
+        updateHeaderDate();
+        renderDashboard();
+        const p = db.getProfile();
+        showToast(`Bienvenue ${p.first_name}!`,'success');
+      } else {
+        showToast('Email ou mot de passe incorrect','error');
+      }
+    } else {
+      showToast('Aucun compte sur cet appareil. Créez un profil ou importez via QR.','error');
+    }
+  });
+
+  // Scan QR dans l'onglet Connexion (via caméra)
+  $('onboard-scan-qr-btn')?.addEventListener('click', ()=> startCameraQRScan('onboard'));
+} // fin initEventListeners
+async function initApp() {
+  showLoading(true, 'Demarrage...');
+  try {
+    await db.init();
+
+    const savedLang = db.getSetting('lang','fr');
+    state.lang = new LangJS({
+      languagePath: 'lang/',
+      defaultLanguage: savedLang,
+      availableLanguages: ['fr','rw','rn','en'],
+      onLanguageChange: lang => {
+        db.setSetting('lang', lang);
+        const sel=$('lang-select'); if(sel) sel.value=lang;
+        const ss=$('setup-lang-select'); if(ss) ss.value=lang;
+      }
+    });
+    await state.lang.init();
+
+    loadSettings();
+    initCalculatorDrag();
+    initEventListeners();
+
+    const initialized = db.getSetting('initialized','0');
+    if (initialized !== '1') {
+      showLoading(false);
+      showOnboarding();
+      return;
+    }
+
+    updateSettingsProfile();
+    updateHeaderDate();
+    renderDashboard();
+    checkPrivilegeTransfer();
+
+    // Démarrer polling api.php
+    window._onRemoteChange = () => {
+      if (state.currentView === 'dashboard') renderDashboard();
+      updateSettingsProfile();
+      updateSyncIndicator();
+    };
+    db.startPolling(15000);
+    updateSyncIndicator();
+
+  } catch(err) {
+    console.error('App init error:', err);
+    showToast('Erreur d\'initialisation: '+err.message,'error');
+  } finally {
+    showLoading(false);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', initApp);
+
+/**
+ * MenapDB v3.0 - Couche SQLite via sql.js
+ * Persistance: localStorage (base64) + export .db binaire
+ */
