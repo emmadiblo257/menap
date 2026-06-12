@@ -47,7 +47,7 @@
     "error_no_account": "Aucun compte trouvé. Veuillez créer un profil."
   },
   "search": {
-    "placeholder": "Rechercher budgets, articles...",
+    "placeholder": "Rechercher budgets, achats...",
     "empty": "Aucun résultat trouvé."
   },
   "settings": {
@@ -90,7 +90,7 @@
     "name_placeholder": "Ex: Riz, Huile, Sucre...",
     "budgeted": "Montant Budgétisé",
     "save": "Ajouter Achat",
-    "purchases_title": "Liste des articles",
+    "purchases_title": "Liste des Achats",
     "refill_title": "Réapprovisionner",
     "refill_btn": "Acheter",
     "delete_confirm": "Supprimer cet achat et tous ses enregistrements?"

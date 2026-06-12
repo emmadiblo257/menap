@@ -456,7 +456,7 @@ class MenapDB {
         if (vJson.ts <= lastTs) return; // rien de nouveau
         lastTs = vJson.ts;
         // Télécharger la nouvelle base
-        const resp = await fetch('https://sigra.xo.je/menap/api.php', { cache: 'no-store' });
+        const resp = await fetch('api.php', { cache: 'no-store' });
         if (!resp.ok || resp.status === 204) return;
         const buf = await resp.arrayBuffer();
         if (buf.byteLength < 100) return;

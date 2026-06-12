@@ -1,5 +1,5 @@
 /**
- * Menap App v4.0
+ * Menap App V2.0
  */
 
 // ─── État global ───
@@ -180,21 +180,41 @@ async function startCamera() {
 }
 
 function startQRScanLoop() {
-  const video = $('qr-camera-video'), canvas = $('qr-camera-canvas'), ctx = canvas.getContext('2d');
+  const video  = $('qr-camera-video');
+  const canvas = $('qr-camera-canvas');
+  const ctx    = canvas.getContext('2d');
+  let lastData = null;
+  let debounce = 0;
+
   state.cameraScanInterval = setInterval(() => {
-    if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
-    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // Attendre que la vidéo soit prête ET ait des dimensions valides
+    if (video.readyState < video.HAVE_CURRENT_DATA) return;
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) return;
+
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(video, 0, 0, w, h);
+
+    const imageData = ctx.getImageData(0, 0, w, h);
     if (!window.jsQR) return;
-    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts:'dontInvert' });
-    if (code) {
-      const st = $('camera-qr-status');
-      if (st) st.textContent = '✓ QR détecté!';
-      stopCamera();
-      handleQRScanned(code.data);
-    }
-  }, 200);
+
+    // attemptBoth = détecte codes clairs ET sombres (meilleure compatibilité)
+    const code = jsQR(imageData.data, w, h, { inversionAttempts: 'attemptBoth' });
+    if (!code) return;
+
+    // Anti-rebond : ignorer le même code pendant 1,5 s
+    const now = Date.now();
+    if (code.data === lastData && now - debounce < 1500) return;
+    lastData = code.data;
+    debounce = now;
+
+    const st = $('camera-qr-status');
+    if (st) { st.textContent = '✓ QR détecté !'; st.style.color = 'var(--primary-color)'; }
+
+    stopCamera();
+    handleQRScanned(code.data);
+  }, 150); // 150 ms = ~6 fps — suffisant et économique
 }
 
 function stopCamera() {
@@ -225,32 +245,71 @@ async function scanQRFromFile(file) {
 
 function handleQRScanned(data) {
   closeModal('camera-qr-modal');
+  const wasOnboard = state.cameraScanMode === 'onboard';
+  state.cameraScanMode = null;
+
   try {
     const obj = JSON.parse(data);
-    // QR Auth (re-connexion)
+
+    // QR Auth (re-connexion avec profil complet)
     if (obj._m === 3 && obj.em) {
       loginFromQR(obj);
       return;
     }
+
     // QR Invitation ménage
-    if (obj._t === 'invite' && obj.mid) {
+    if (obj._t === 'invite' && (obj.mid || obj.uid)) {
+      // Si on vient de l'onboarding, d'abord vérifier qu'on a un profil local
+      if (wasOnboard) {
+        const p = db.getProfile();
+        if (!p || !p.first_name) {
+          showToast('Créez d\'abord votre profil avant de rejoindre un ménage.', 'error');
+          showOnboarding();
+          return;
+        }
+      }
       handleJoinHousehold(obj);
+      // Si on venait de l'onboarding, aller au dashboard après avoir rejoint
+      if (wasOnboard) {
+        db.setSetting('initialized','1');
+        hideOnboarding();
+        updateSettingsProfile();
+        updateHeaderDate();
+        renderDashboard();
+      }
       return;
     }
-    // Ancien format .dem intégré
+
+    // Ancien format .dem intégré dans QR
     if (obj.type === 'menap_auth' && obj.dem) {
-      const ok = db.importFromDem(obj.dem);
-      if (ok) { showToast('Données restaurées!','success'); setTimeout(()=>location.reload(),1200); }
-      else showToast('QR invalide','error');
+      const res = db.importFromDem(obj.dem);
+      if (res && res.ok) {
+        showToast('Données restaurées depuis le QR !','success');
+        hideOnboarding();
+        updateSettingsProfile();
+        updateHeaderDate();
+        renderDashboard();
+      } else {
+        showToast('QR invalide','error');
+      }
       return;
     }
+
     showToast('Format QR non reconnu','error');
+
   } catch(e) {
-    // Tenter comme .dem direct
+    // Tenter comme contenu .menap direct
     if (data.length > 50) {
-      const ok = db.importFromDem(data);
-      if (ok) { showToast('Données restaurées!','success'); setTimeout(()=>location.reload(),1200); }
-      else showToast('Format QR non reconnu','error');
+      const res = db.importFromDem(data);
+      if (res && res.ok) {
+        showToast('Données restaurées !','success');
+        hideOnboarding();
+        updateSettingsProfile();
+        updateHeaderDate();
+        renderDashboard();
+      } else {
+        showToast('Format QR non reconnu','error');
+      }
     } else {
       showToast('QR non reconnu','error');
     }
@@ -258,14 +317,19 @@ function handleQRScanned(data) {
 }
 
 function loginFromQR(obj) {
-  // Restaurer le profil depuis le QR et marquer comme connecté
+  // Enregistrer le profil depuis le QR dans menap.db (push vers serveur via _save)
   db.saveProfile({ user_id: obj.uid || (obj.em+'_'+Date.now()), first_name: obj.fn||'', last_name: obj.ln||'', email: obj.em, password: obj.pw||'' });
   if (obj.la) db.setSetting('lang', obj.la);
   if (obj.cu) db.setSetting('currency', obj.cu);
   if (obj.th) db.setSetting('theme', obj.th);
   db.setSetting('initialized', '1');
   showToast(`Bienvenue ${obj.fn||''}!`, 'success');
-  setTimeout(() => location.reload(), 800);
+  // Aller au dashboard sans rechargement (données déjà en mémoire)
+  hideOnboarding();
+  updateSettingsProfile();
+  updateHeaderDate();
+  renderDashboard();
+  loadSettings();
 }
 
 function handleJoinHousehold(inviteData) {
@@ -582,9 +646,9 @@ function renderBudgetDetail(budgetId) {
   // Contributions membres
   html += renderMembersContributions(budgetId, totalSpent, memberCount, perMember);
 
-  // articles
+  // Achats
   html += `<div class="section-title">
-    <span>articles (${items.length})</span>
+    <span>Achats (${items.length})</span>
     <button class="backup-btn" style="width:auto;padding:6px 14px;font-size:13px;border-radius:20px" onclick="openCreateItemModal(${b.id})">
       <i class="fas fa-plus"></i> Ajouter
     </button>
@@ -663,7 +727,7 @@ function renderItemCard(item, budgetId) {
       <span class="food-item-name">${escHtml(item.name)}</span>
       <div class="food-item-actions">
         <button class="item-action-btn" title="Ajouter achat" onclick="openCreatePurchaseModal(${item.id})"><i class="fas fa-plus"></i></button>
-        <button class="item-action-btn" title="Liste articles" onclick="openPurchasesListModal(${item.id})"><i class="fas fa-list"></i></button>
+        <button class="item-action-btn" title="Liste achats" onclick="openPurchasesListModal(${item.id})"><i class="fas fa-list"></i></button>
         <button class="item-action-btn" title="Réappro" onclick="openRefillModal(${item.id})"><i class="fas fa-fill-drip"></i></button>
         <button class="item-action-btn delete-btn" title="Supprimer" onclick="confirmDeleteItem(${item.id})"><i class="fas fa-trash-alt"></i></button>
       </div>
@@ -798,7 +862,7 @@ function saveItem() {
 function confirmDeleteItem(id) {
   const item = db.getItem(id);
   if (!item) return;
-  if (confirm(`Supprimer "${item.name}" et tous ses articles?`)) {
+  if (confirm(`Supprimer "${item.name}" et tous ses achats?`)) {
     const budgetId = item.budget_id;
     db.deleteItem(id);
     showToast('Achat supprimé','info');
@@ -1395,6 +1459,19 @@ function shareApp() {
 function showOnboarding() {
   const screen = $('onboarding-screen');
   if (screen) screen.classList.remove('hidden');
+  // Si un profil existe déjà dans menap.db (chargé depuis le serveur),
+  // pré-remplir l'email et basculer sur l'onglet Connexion
+  const p = db.getProfile();
+  if (p && p.email) {
+    const emailField = $('login-email');
+    if (emailField) emailField.value = p.email;
+    const hint = $('login-profile-hint');
+    if (hint) {
+      hint.textContent = `Compte trouvé : ${p.first_name} ${p.last_name}`.trim();
+      hint.style.display = 'block';
+    }
+    $('tab-onboard-login')?.click();
+  }
 }
 
 function hideOnboarding() {
@@ -1592,20 +1669,21 @@ function initEventListeners() {
     const em = $('login-email').value.trim();
     const pw = $('login-password').value;
     if (!em || !pw) { showToast('Email et mot de passe requis','error'); return; }
-    const initialized = db.getSetting('initialized','0');
-    if (initialized === '1') {
-      if (db.verifyPassword(em, pw)) {
-        hideOnboarding();
-        updateSettingsProfile();
-        updateHeaderDate();
-        renderDashboard();
-        const p = db.getProfile();
-        showToast(`Bienvenue ${p.first_name}!`,'success');
-      } else {
-        showToast('Email ou mot de passe incorrect','error');
-      }
+    // Vérifier directement depuis le profil chargé du serveur (menap.db)
+    const serverProfile = db.getProfile();
+    if (!serverProfile || !serverProfile.email) {
+      showToast('Aucun profil trouvé sur le serveur. Créez un profil.','error');
+      return;
+    }
+    if (db.verifyPassword(em, pw)) {
+      db.setSetting('initialized','1');
+      hideOnboarding();
+      updateSettingsProfile();
+      updateHeaderDate();
+      renderDashboard();
+      showToast(`Bienvenue ${serverProfile.first_name}!`,'success');
     } else {
-      showToast('Aucun compte sur cet appareil. Créez un profil ou importez via QR.','error');
+      showToast('Mot de passe incorrect','error');
     }
   });
 
@@ -1634,12 +1712,16 @@ async function initApp() {
     initCalculatorDrag();
     initEventListeners();
 
-    const initialized = db.getSetting('initialized','0');
-    if (initialized !== '1') {
+    // Source unique = menap.db sur le serveur : si un profil y est, on va au dashboard
+    const serverProfile = db.getProfile();
+    const hasProfile = serverProfile && serverProfile.first_name && serverProfile.first_name.trim() !== '';
+    if (!hasProfile) {
       showLoading(false);
       showOnboarding();
       return;
     }
+    // Synchroniser le flag initialized si nécessaire (migration)
+    if (db.getSetting('initialized','0') !== '1') db.setSetting('initialized','1');
 
     updateSettingsProfile();
     updateHeaderDate();
